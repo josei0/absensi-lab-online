@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Absensi Online Lab</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #e9ecef; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .container { background-color: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        h2 { text-align: center; color: #004a99; margin-bottom: 5px; }
+        .clock { text-align: center; font-size: 1.2em; font-weight: bold; color: #555; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        label { font-weight: 600; color: #333; display: block; margin-top: 15px; margin-bottom: 5px; }
+        input, select { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+        input:focus, select:focus { border-color: #004a99; outline: none; }
+        
+        .password-wrapper { position: relative; }
+        .password-wrapper input { padding-right: 40px; } 
+        .toggle-password {
+            position: absolute;
+            top: 50%;
+            right: 10px;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #666;
+            font-size: 1.2em;
+            user-select: none;
+        }
+        
+        .btn-group { display: flex; gap: 10px; margin-top: 25px; }
+        .btn { flex: 1; padding: 12px; border: none; border-radius: 6px; font-weight: bold; color: white; cursor: pointer; transition: background 0.2s; font-size: 16px; }
+        .btn-in { background-color: #28a745; } .btn-in:hover { background-color: #218838; }
+        .btn-out { background-color: #dc3545; } .btn-out:hover { background-color: #c82333; }
+        
+        #status { margin-top: 20px; text-align: center; font-size: 0.9em; }
+        .loading { color: #666; font-style: italic; }
+        .error { color: #dc3545; background: #f8d7da; padding: 10px; border-radius: 4px; }
+        .success { color: #155724; background: #d4edda; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Sistem Absensi Online</h2>
+    <div class="clock" id="server-clock">Memuat Waktu Server...</div>
+
+    <label for="id_asisten">ID Asisten (Kampus)</label>
+    <input type="text" id="id_asisten" placeholder="Contoh: ASLAB001">
+
+    <label for="password">Password Global Lab</label>
+    <div class="password-wrapper">
+        <input type="password" id="password" placeholder="Masukkan Password Lab">
+        <span class="toggle-password" onclick="togglePassword()">🙉</span>
+    </div>
+
+    <label for="pilih_lab">Pilih Lab (Sedang Aktif)</label>
+    <select id="pilih_lab" onchange="loadKelas()" disabled>
+        <option value="">-- Memuat Jadwal --</option>
+    </select>
+
+    <label for="pilih_kelas">Pilih Kelas</label>
+    <select id="pilih_kelas" disabled>
+        <option value="">-- Pilih Lab Dulu --</option>
+    </select>
+
+    <div class="btn-group">
+        <button class="btn btn-in" onclick="kirimAbsen('MASUK')">Tap IN</button>
+        <button class="btn btn-out" onclick="kirimAbsen('KELUAR')">Tap OUT</button>
+    </div>
+
+    <div id="status"></div>
+</div>
+
+<!-- FIREBASE SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+<script>
+    // ============================================================
+    // 1. KONFIGURASI FIREBASE (GANTI DENGAN PUNYA ANDA!)
+    // ============================================================
+    const firebaseConfig = {
+        apiKey: "AIzaSyCFD5lHiLgQ9fdM5jFi9cnU1Cb9tvuVwCo",
+        authDomain: "absensi-lab-ap.firebaseapp.com",
+        databaseURL: "https://absensi-lab-ap-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "absensi-lab-ap",
+        storageBucket: "absensi-lab-ap.firebasestorage.app",
+        messagingSenderId: "527336808682",
+        appId: "1:527336808682:web:035f90255bffb5133a7793",
+        measurementId: "G-H66FGW3166"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // Variabel Global
+    let allSchedules = {};
+    let timeOffset = 0; 
+    let serverTimeNow = new Date();
+
+    // 2. SINKRONISASI WAKTU
+    function initTimeSync() {
+        const offsetRef = db.ref(".info/serverTimeOffset");
+        offsetRef.on("value", (snap) => {
+            timeOffset = snap.val();
+            if (!allSchedules || Object.keys(allSchedules).length === 0) {
+                 loadSchedulesFromFirebase();
+            }
+            if (!window.clockInterval) {
+                startClock();
+            }
+        });
+    }
+
+    function startClock() {
+        window.clockInterval = setInterval(() => {
+            serverTimeNow = new Date(Date.now() + timeOffset);
+            
+            const timeString = serverTimeNow.toLocaleTimeString('id-ID', { hour12: false });
+            const dateString = serverTimeNow.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short' });
+            const clockEl = document.getElementById('server-clock');
+            if(clockEl) clockEl.innerText = `${dateString} | ${timeString} WIB`;
+
+            const currentSelection = document.getElementById('pilih_lab').value;
+            
+            filterActiveLabs(); 
+            
+            if(currentSelection) {
+                const options = document.getElementById('pilih_lab').options;
+                for (let i = 0; i < options.length; i++) {
+                    if (options[i].value === currentSelection) {
+                        document.getElementById('pilih_lab').value = currentSelection;
+                        break;
+                    }
+                }
+            }
+
+        }, 1000);
+    }
+
+    // 3. LOGIKA JADWAL
+    function loadSchedulesFromFirebase() {
+        const labSelect = document.getElementById('pilih_lab');
+        db.ref('jadwal_kelas').on('value', (snapshot) => {
+            allSchedules = snapshot.val() || {};
+            filterActiveLabs(); 
+            
+            if(document.getElementById('pilih_lab').value) {
+                loadKelas();
+            }
+        }, (error) => {
+             labSelect.innerHTML = "<option>Gagal memuat jadwal</option>";
+        });
+    }
+
+    function filterActiveLabs() {
+        const labSelect = document.getElementById('pilih_lab');
+        const kelasSelect = document.getElementById('pilih_kelas'); 
+        
+        labSelect.innerHTML = '<option value="">-- Pilih Lab --</option>';
+        labSelect.disabled = false;
+        
+        const activeLabs = new Set();
+        const days = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+        const todayName = days[serverTimeNow.getDay()];
+        const currentMinutes = serverTimeNow.getHours() * 60 + serverTimeNow.getMinutes();
+
+        for (const key in allSchedules) {
+            const item = allSchedules[key];
+            if (item.is_online !== true) continue;
+            if (item.hari.toLowerCase() !== todayName.toLowerCase()) continue;
+
+            const [startH, startM] = item.jam_mulai.split(':').map(Number);
+            const [endH, endM] = item.jam_selesai.split(':').map(Number);
+            const startTotal = startH * 60 + startM;
+            const endTotal = endH * 60 + endM;
+
+            if (currentMinutes >= (startTotal - 15) && currentMinutes < endTotal) {
+                activeLabs.add(item.lokasi_lab);
+            }
+        }
+
+        if (activeLabs.size === 0) {
+            labSelect.innerHTML = "<option value=''>Tidak ada jadwal online saat ini</option>";
+            labSelect.disabled = true;
+            
+            kelasSelect.innerHTML = '<option value="">-- Tidak Ada Jadwal --</option>';
+            kelasSelect.value = ""; 
+            kelasSelect.disabled = true;
+        } else {
+            activeLabs.forEach(lab => {
+                let option = document.createElement("option");
+                option.value = lab;
+                option.text = lab.replace("_", " ");
+                labSelect.add(option);
+            });
+            
+            const currentLab = labSelect.value;
+            if(!currentLab) {
+                 kelasSelect.innerHTML = '<option value="">-- Pilih Lab Dulu --</option>';
+                 kelasSelect.disabled = true;
+            }
+        }
+    }
+
+    function loadKelas() {
+        const selectedLab = document.getElementById('pilih_lab').value;
+        const kelasSelect = document.getElementById('pilih_kelas');
+        kelasSelect.innerHTML = '<option value="">-- Pilih Kelas --</option>';
+        kelasSelect.disabled = false;
+
+        if (!selectedLab) {
+            kelasSelect.disabled = true;
+            return;
+        }
+
+        const days = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+        const todayName = days[serverTimeNow.getDay()];
+        const currentMinutes = serverTimeNow.getHours() * 60 + serverTimeNow.getMinutes();
+
+        for (const key in allSchedules) {
+            const item = allSchedules[key];
+            if (item.lokasi_lab === selectedLab && item.is_online === true) {
+                 if (item.hari.toLowerCase() !== todayName.toLowerCase()) continue;
+                 
+                 const [startH, startM] = item.jam_mulai.split(':').map(Number);
+                 const [endH, endM] = item.jam_selesai.split(':').map(Number);
+                 const startTotal = startH * 60 + startM;
+                 const endTotal = endH * 60 + endM;
+
+                 if (currentMinutes >= (startTotal - 15) && currentMinutes < endTotal) {
+                    let option = document.createElement("option");
+                    option.value = item.nama_kelas;
+                    option.text = `${item.nama_kelas} (${item.jam_mulai}-${item.jam_selesai})`;
+                    kelasSelect.add(option);
+                 }
+            }
+        }
+    }
+
+    // 4. FITUR TOGGLE PASSWORD
+    function togglePassword() {
+        const passwordInput = document.getElementById('password');
+        const icon = document.querySelector('.toggle-password');
+        if (passwordInput.type === 'password') {
+            passwordInput.type = 'text';
+            icon.innerText = '🙈'; // Ikon mata tertutup (opsional)
+        } else {
+            passwordInput.type = 'password';
+            icon.innerText = '🙉';
+        }
+    }
+
+    // 5. KIRIM DATA KE QUEUE
+    function kirimAbsen(tipe) {
+        const id = document.getElementById('id_asisten').value.toUpperCase().trim();
+        const pass = document.getElementById('password').value.trim();
+        const lab = document.getElementById('pilih_lab').value;
+        const kelas = document.getElementById('pilih_kelas').value;
+        const statusDiv = document.getElementById('status');
+
+        statusDiv.innerHTML = "";
+        statusDiv.className = "";
+
+        if(!id || !pass) {
+            showStatus("ID Asisten dan Password harus diisi!", "error"); return;
+        }
+        
+        // --- VALIDASI BARU: TAP OUT JUGA WAJIB PILIH LAB & KELAS ---
+        if(!lab || !kelas) {
+            showStatus("Mohon pilih Lokasi Lab dan Kelas terlebih dahulu!", "error"); return;
+        }
+        // ------------------------------------------------------------
+
+        showStatus("Mengirim data ke server...", "loading");
+
+        const requestData = {
+            id_asisten_kampus: id,
+            password: pass,
+            lokasi_lab: lab,
+            nama_kelas: kelas,
+            tipe: tipe,
+            timestamp: firebase.database.ServerValue.TIMESTAMP 
+        };
+
+        db.ref('online_queue').push(requestData)
+            .then(() => {
+                showStatus("✅ Permintaan Terkirim!<br>Menunggu verifikasi Server Lab.", "success");
+            })
+            .catch((error) => {
+                showStatus("Gagal: " + error.message, "error");
+            });
+    }
+
+    function showStatus(msg, type) {
+        const el = document.getElementById('status');
+        el.innerHTML = msg;
+        el.className = type;
+    }
+
+    initTimeSync();
+</script>
+</body>
+</html>
