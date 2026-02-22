@@ -91,12 +91,13 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // Variabel Global
     let allSchedules = {};
     let timeOffset = 0; 
     let serverTimeNow = new Date();
 
-    // 2. SINKRONISASI WAKTU
+    // ============================================================
+    // 2. LOGIKA WAKTU & JADWAL (PERBAIKAN BUG DROPDOWN)
+    // ============================================================
     function initTimeSync() {
         const offsetRef = db.ref(".info/serverTimeOffset");
         offsetRef.on("value", (snap) => {
@@ -116,47 +117,59 @@
             
             const timeString = serverTimeNow.toLocaleTimeString('id-ID', { hour12: false });
             const dateString = serverTimeNow.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short' });
+            
             const clockEl = document.getElementById('server-clock');
             if(clockEl) clockEl.innerText = `${dateString} | ${timeString} WIB`;
 
-            const currentSelection = document.getElementById('pilih_lab').value;
-            
+            // --- PERBAIKAN BUG DROPDOWN ---
+            // Simpan state saat ini
+            const labSelect = document.getElementById('pilih_lab');
+            const kelasSelect = document.getElementById('pilih_kelas');
+            const currentLab = labSelect.value;
+            const currentKelas = kelasSelect.value;
+
+            // Refresh Pilihan Lab
             filterActiveLabs(); 
             
-            if(currentSelection) {
-                const options = document.getElementById('pilih_lab').options;
-                for (let i = 0; i < options.length; i++) {
-                    if (options[i].value === currentSelection) {
-                        document.getElementById('pilih_lab').value = currentSelection;
+            // Kembalikan pilihan user jika masih valid
+            if(currentLab) {
+                // Cek apakah opsi tersebut masih ada di dropdown baru
+                let labExists = false;
+                for (let i = 0; i < labSelect.options.length; i++) {
+                    if (labSelect.options[i].value === currentLab) {
+                        labSelect.value = currentLab;
+                        labExists = true;
                         break;
                     }
                 }
+                
+                // Jika lab masih ada, muat ulang kelas dan setel kembali kelas terpilih
+                if (labExists) {
+                    loadKelas(); // Ini yang kemarin kurang (memanggil ulang isi kelas)
+                    kelasSelect.value = currentKelas; // Kembalikan pilihan kelas
+                }
             }
-
+            // -----------------------------
         }, 1000);
     }
 
-    // 3. LOGIKA JADWAL
     function loadSchedulesFromFirebase() {
-        const labSelect = document.getElementById('pilih_lab');
         db.ref('jadwal_kelas').on('value', (snapshot) => {
             allSchedules = snapshot.val() || {};
-            filterActiveLabs(); 
-            
-            if(document.getElementById('pilih_lab').value) {
-                loadKelas();
-            }
-        }, (error) => {
-             labSelect.innerHTML = "<option>Gagal memuat jadwal</option>";
+            filterActiveLabs();
         });
     }
 
     function filterActiveLabs() {
         const labSelect = document.getElementById('pilih_lab');
-        const kelasSelect = document.getElementById('pilih_kelas'); 
+        const kelasSelect = document.getElementById('pilih_kelas');
         
+        // Jangan reset total jika kita hanya ingin update opsi
+        // Simpan nilai lama
+        const oldValue = labSelect.value;
+
+        // Kosongkan opsi tapi simpan header
         labSelect.innerHTML = '<option value="">-- Pilih Lab --</option>';
-        labSelect.disabled = false;
         
         const activeLabs = new Set();
         const days = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
@@ -179,31 +192,29 @@
         }
 
         if (activeLabs.size === 0) {
-            labSelect.innerHTML = "<option value=''>Tidak ada jadwal online saat ini</option>";
+            labSelect.innerHTML = "<option value=''>-- Tidak ada jadwal online saat ini --</option>";
             labSelect.disabled = true;
-            
             kelasSelect.innerHTML = '<option value="">-- Tidak Ada Jadwal --</option>';
-            kelasSelect.value = ""; 
             kelasSelect.disabled = true;
         } else {
+            labSelect.disabled = false;
             activeLabs.forEach(lab => {
                 let option = document.createElement("option");
                 option.value = lab;
                 option.text = lab.replace("_", " ");
                 labSelect.add(option);
             });
-            
-            const currentLab = labSelect.value;
-            if(!currentLab) {
-                 kelasSelect.innerHTML = '<option value="">-- Pilih Lab Dulu --</option>';
-                 kelasSelect.disabled = true;
-            }
+            // Jika lab terpilih sebelumnya masih valid, setel kembali di sini akan ditangani oleh startClock
         }
     }
 
     function loadKelas() {
         const selectedLab = document.getElementById('pilih_lab').value;
         const kelasSelect = document.getElementById('pilih_kelas');
+        
+        // Simpan nilai lama agar tidak reset saat refresh detik
+        const oldValue = kelasSelect.value;
+        
         kelasSelect.innerHTML = '<option value="">-- Pilih Kelas --</option>';
         kelasSelect.disabled = false;
 
@@ -234,43 +245,35 @@
                  }
             }
         }
+        
+        // Kembalikan nilai jika opsi masih ada
+        if(oldValue) kelasSelect.value = oldValue;
     }
-
-    // 4. FITUR TOGGLE PASSWORD
-    function togglePassword() {
-        const passwordInput = document.getElementById('password');
-        const icon = document.querySelector('.toggle-password');
-        if (passwordInput.type === 'password') {
-            passwordInput.type = 'text';
-            icon.innerText = '🙈'; // Ikon mata tertutup (opsional)
-        } else {
-            passwordInput.type = 'password';
-            icon.innerText = '🙉';
-        }
-    }
-
-    // 5. KIRIM DATA KE QUEUE
+    let activeBtn = null;
+    // ============================================================
+    // 3. KIRIM DATA & TUNGGU RESPON SERVER
+    // ============================================================
     function kirimAbsen(tipe) {
         const id = document.getElementById('id_asisten').value.toUpperCase().trim();
         const pass = document.getElementById('password').value.trim();
         const lab = document.getElementById('pilih_lab').value;
         const kelas = document.getElementById('pilih_kelas').value;
-        const statusDiv = document.getElementById('status');
-
-        statusDiv.innerHTML = "";
-        statusDiv.className = "";
-
-        if(!id || !pass) {
-            showStatus("ID Asisten dan Password harus diisi!", "error"); return;
-        }
         
-        // --- VALIDASI BARU: TAP OUT JUGA WAJIB PILIH LAB & KELAS ---
-        if(!lab || !kelas) {
-            showStatus("Mohon pilih Lokasi Lab dan Kelas terlebih dahulu!", "error"); return;
-        }
-        // ------------------------------------------------------------
+        // Pilih tombol yang diklik
+        const btnIn = document.querySelector('.btn-in');
+        const btnOut = document.querySelector('.btn-out');
+        
+        if(!id || !pass) { showStatus("ID Asisten dan Password harus diisi!", "error"); return; }
+        if(!lab || !kelas) { showStatus("Pilih Lokasi Lab dan Kelas!", "error"); return; }
 
-        showStatus("Mengirim data ke server...", "loading");
+        // --- DISABLE TOMBOL AGAR TIDAK SPAM ---
+        btnIn.disabled = true;
+        btnOut.disabled = true;
+        btnIn.style.opacity = "0.6"; btnIn.style.cursor = "not-allowed";
+        btnOut.style.opacity = "0.6"; btnOut.style.cursor = "not-allowed";
+        // -------------------------------------
+
+        showStatus("Menghubungkan ke Server Lab...", "loading");
 
         const requestData = {
             id_asisten_kampus: id,
@@ -281,19 +284,65 @@
             timestamp: firebase.database.ServerValue.TIMESTAMP 
         };
 
-        db.ref('online_queue').push(requestData)
+        const newRef = db.ref('online_queue').push();
+        
+        newRef.set(requestData)
             .then(() => {
-                showStatus("✅ Permintaan Terkirim!<br>Menunggu verifikasi Server Lab.", "success");
+                listenForResponse(newRef.key);
             })
             .catch((error) => {
-                showStatus("Gagal: " + error.message, "error");
+                showStatus("Gagal koneksi internet: " + error.message, "error");
+                resetButtons(); // Aktifkan lagi jika gagal kirim
             });
+    }
+
+    function listenForResponse(requestKey) {
+        const responseRef = db.ref(`online_responses/${requestKey}`);
+        
+        const timeout = setTimeout(() => {
+            responseRef.off(); 
+            showStatus("✅ Permintaan masuk ke antrean.<br>Server Lab sedang sibuk/offline, data akan diproses saat Server aktif.", "success");
+            resetButtons(); // Aktifkan lagi setelah timeout
+        }, 10000); 
+
+        responseRef.on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                clearTimeout(timeout); 
+                responseRef.off();     
+                
+                if (data.status === 'SUCCESS') {
+                    showStatus(`✅ BERHASIL: ${data.msg}`, "success");
+                } else {
+                    showStatus(`❌ GAGAL: ${data.msg}`, "error");
+                }
+                
+                responseRef.remove();
+                resetButtons(); // Aktifkan lagi setelah respon diterima
+            }
+        });
+    }
+
+    // Fungsi Helper untuk mengaktifkan kembali tombol
+    function resetButtons() {
+        const btnIn = document.querySelector('.btn-in');
+        const btnOut = document.querySelector('.btn-out');
+        
+        btnIn.disabled = false;
+        btnOut.disabled = false;
+        btnIn.style.opacity = "1"; btnIn.style.cursor = "pointer";
+        btnOut.style.opacity = "1"; btnOut.style.cursor = "pointer";
     }
 
     function showStatus(msg, type) {
         const el = document.getElementById('status');
         el.innerHTML = msg;
         el.className = type;
+    }
+
+    function togglePassword() {
+        const x = document.getElementById("password");
+        x.type = x.type === "password" ? "text" : "password";
     }
 
     initTimeSync();
