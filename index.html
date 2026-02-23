@@ -341,8 +341,17 @@
     }
 
     function togglePassword() {
-        const x = document.getElementById("password");
-        x.type = x.type === "password" ? "text" : "password";
+        const passwordInput = document.getElementById("password");
+        const icon = document.querySelector(".toggle-password"); 
+        
+        if (passwordInput.type === "password") {
+            passwordInput.type = "text";
+            icon.innerText = "🙈"; 
+        } else {
+            // Ubah jadi password (password tersembunyi)
+            passwordInput.type = "password";
+            icon.innerText = "🙉"; 
+        }
     }
 
     initTimeSync();
