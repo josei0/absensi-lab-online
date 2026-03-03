@@ -93,15 +93,21 @@
 
     let allSchedules = {};
     let timeOffset = 0; 
-    let serverTimeNow = new Date();
+    let currentWIB = {
+        dayName: "",  // Senin, Selasa, dst
+        hours: 0,     // 0-23
+        minutes: 0,   // 0-59
+        fullDateStr: "" // String tanggal lengkap
+    };
 
     // ============================================================
-    // 2. LOGIKA WAKTU & JADWAL (PERBAIKAN BUG DROPDOWN)
+    // 2. SINKRONISASI WAKTU & LOGIKA WIB
     // ============================================================
     function initTimeSync() {
         const offsetRef = db.ref(".info/serverTimeOffset");
         offsetRef.on("value", (snap) => {
             timeOffset = snap.val();
+            // Setelah dapat offset, load jadwal
             if (!allSchedules || Object.keys(allSchedules).length === 0) {
                  loadSchedulesFromFirebase();
             }
@@ -111,29 +117,55 @@
         });
     }
 
+    function updateWIB() {
+        // 1. Ambil Waktu UTC Murni (Waktu Laptop + Offset Server)
+        const nowRaw = Date.now() + timeOffset;
+        
+        // 2. Tambahkan Offset WIB (7 Jam dalam milidetik)
+        // 7 jam * 60 menit * 60 detik * 1000 ms
+        const wibOffset = 7 * 60 * 60 * 1000;
+        
+        // 3. Buat objek Date seolah-olah ini UTC
+        const wibDate = new Date(nowRaw + wibOffset);
+        
+        // 4. Ambil komponen menggunakan method getUTC... 
+        // (PENTING: Pakai UTC agar browser tidak konversi ke zona waktu laptop)
+        const days = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+        const months = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+        
+        currentWIB.dayName = days[wibDate.getUTCDay()];
+        currentWIB.hours = wibDate.getUTCHours();
+        currentWIB.minutes = wibDate.getUTCMinutes();
+        
+        // Format Tanggal Manual
+        const d = wibDate.getUTCDate();
+        const m = months[wibDate.getUTCMonth()];
+        const y = wibDate.getUTCFullYear();
+        currentWIB.fullDateStr = `${currentWIB.dayName}, ${d} ${m}`;
+    }
+
     function startClock() {
         window.clockInterval = setInterval(() => {
-            serverTimeNow = new Date(Date.now() + timeOffset);
+            // Hitung ulang waktu WIB
+            updateWIB(); 
             
-            const timeString = serverTimeNow.toLocaleTimeString('id-ID', { hour12: false });
-            const dateString = serverTimeNow.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short' });
+            // Format Jam (Paddings 0)
+            const h = currentWIB.hours.toString().padStart(2, '0');
+            const m = currentWIB.minutes.toString().padStart(2, '0');
             
+            // Tampilkan di layar
             const clockEl = document.getElementById('server-clock');
-            if(clockEl) clockEl.innerText = `${dateString} | ${timeString} WIB`;
+            if(clockEl) clockEl.innerText = `${currentWIB.fullDateStr} | ${h}:${m} WIB`;
 
             // --- PERBAIKAN BUG DROPDOWN ---
-            // Simpan state saat ini
             const labSelect = document.getElementById('pilih_lab');
             const kelasSelect = document.getElementById('pilih_kelas');
             const currentLab = labSelect.value;
             const currentKelas = kelasSelect.value;
 
-            // Refresh Pilihan Lab
             filterActiveLabs(); 
             
-            // Kembalikan pilihan user jika masih valid
             if(currentLab) {
-                // Cek apakah opsi tersebut masih ada di dropdown baru
                 let labExists = false;
                 for (let i = 0; i < labSelect.options.length; i++) {
                     if (labSelect.options[i].value === currentLab) {
@@ -142,17 +174,17 @@
                         break;
                     }
                 }
-                
-                // Jika lab masih ada, muat ulang kelas dan setel kembali kelas terpilih
                 if (labExists) {
-                    loadKelas(); // Ini yang kemarin kurang (memanggil ulang isi kelas)
-                    kelasSelect.value = currentKelas; // Kembalikan pilihan kelas
+                    loadKelas();
+                    kelasSelect.value = currentKelas;
                 }
             }
-            // -----------------------------
         }, 1000);
     }
 
+    // ============================================================
+    // 3. LOGIKA JADWAL
+    // ============================================================
     function loadSchedulesFromFirebase() {
         db.ref('jadwal_kelas').on('value', (snapshot) => {
             allSchedules = snapshot.val() || {};
@@ -164,21 +196,21 @@
         const labSelect = document.getElementById('pilih_lab');
         const kelasSelect = document.getElementById('pilih_kelas');
         
-        // Jangan reset total jika kita hanya ingin update opsi
-        // Simpan nilai lama
-        const oldValue = labSelect.value;
-
-        // Kosongkan opsi tapi simpan header
+        // Reset hanya opsi, simpan header
         labSelect.innerHTML = '<option value="">-- Pilih Lab --</option>';
+        labSelect.disabled = false;
         
         const activeLabs = new Set();
-        const days = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
-        const todayName = days[serverTimeNow.getDay()];
-        const currentMinutes = serverTimeNow.getHours() * 60 + serverTimeNow.getMinutes();
+        
+        // GUNAKAN VARIABEL currentWIB (Bukan Date laptop)
+        const todayName = currentWIB.dayName;
+        const currentMinutes = currentWIB.hours * 60 + currentWIB.minutes;
 
         for (const key in allSchedules) {
             const item = allSchedules[key];
             if (item.is_online !== true) continue;
+            
+            // Bandingkan Hari (Case insensitive)
             if (item.hari.toLowerCase() !== todayName.toLowerCase()) continue;
 
             const [startH, startM] = item.jam_mulai.split(':').map(Number);
@@ -186,6 +218,7 @@
             const startTotal = startH * 60 + startM;
             const endTotal = endH * 60 + endM;
 
+            // Logika Toleransi 15 Menit
             if (currentMinutes >= (startTotal - 15) && currentMinutes < endTotal) {
                 activeLabs.add(item.lokasi_lab);
             }
@@ -195,24 +228,21 @@
             labSelect.innerHTML = "<option value=''>-- Tidak ada jadwal online saat ini --</option>";
             labSelect.disabled = true;
             kelasSelect.innerHTML = '<option value="">-- Tidak Ada Jadwal --</option>';
+            kelasSelect.value = "";
             kelasSelect.disabled = true;
         } else {
-            labSelect.disabled = false;
             activeLabs.forEach(lab => {
                 let option = document.createElement("option");
                 option.value = lab;
                 option.text = lab.replace("_", " ");
                 labSelect.add(option);
             });
-            // Jika lab terpilih sebelumnya masih valid, setel kembali di sini akan ditangani oleh startClock
         }
     }
 
     function loadKelas() {
         const selectedLab = document.getElementById('pilih_lab').value;
         const kelasSelect = document.getElementById('pilih_kelas');
-        
-        // Simpan nilai lama agar tidak reset saat refresh detik
         const oldValue = kelasSelect.value;
         
         kelasSelect.innerHTML = '<option value="">-- Pilih Kelas --</option>';
@@ -223,9 +253,9 @@
             return;
         }
 
-        const days = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
-        const todayName = days[serverTimeNow.getDay()];
-        const currentMinutes = serverTimeNow.getHours() * 60 + serverTimeNow.getMinutes();
+        // GUNAKAN VARIABEL currentWIB
+        const todayName = currentWIB.dayName;
+        const currentMinutes = currentWIB.hours * 60 + currentWIB.minutes;
 
         for (const key in allSchedules) {
             const item = allSchedules[key];
@@ -246,12 +276,11 @@
             }
         }
         
-        // Kembalikan nilai jika opsi masih ada
         if(oldValue) kelasSelect.value = oldValue;
     }
     let activeBtn = null;
     // ============================================================
-    // 3. KIRIM DATA & TUNGGU RESPON SERVER
+    // 4. KIRIM DATA & TUNGGU RESPON SERVER
     // ============================================================
     function kirimAbsen(tipe) {
         const id = document.getElementById('id_asisten').value.toUpperCase().trim();
@@ -348,7 +377,6 @@
             passwordInput.type = "text";
             icon.innerText = "🙈"; 
         } else {
-            // Ubah jadi password (password tersembunyi)
             passwordInput.type = "password";
             icon.innerText = "🙉"; 
         }
