@@ -1,0 +1,30 @@
+# ===== PRIVATE / SENSITIVE =====
+firebase_credentials.json
+database_lab.sqlite
+*.sqlite
+
+# ===== PYTHON =====
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+tempCodeRunnerFile.py
+
+# ===== CHROME / SELENIUM =====
+chrome-win64/
+chromedriver.exe
+auto_login.py
+
+# ===== PERSONAL NOTES =====
+Catatan.txt
+Cara mendapatkan chrome driver versi terbaru.txt
+PANDUAN/
+
+# ===== TEMPORARY =====
+_cleanup_html.py
+server_test.py
+
+# ===== OS =====
+Thumbs.db
+.DS_Store

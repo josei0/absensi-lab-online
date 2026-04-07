@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}Admin Panel — SmartLab SESL{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Panel Administrator</h1>
+    <p class="page-subtitle">Kelola data asisten, jadwal kelas, dan kontrol perangkat</p>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+    <button class="tab-btn active" onclick="openTab(event, 'TabAsisten')">👤 Master Asisten</button>
+    <button class="tab-btn" onclick="openTab(event, 'TabJadwal')">📅 Master Jadwal</button>
+    <button class="tab-btn" onclick="openTab(event, 'TabDevice')">🖐️ Device Control</button>
+</div>
+
+<!-- ==================== TAB ASISTEN ==================== -->
+<div id="TabAsisten" class="tabcontent active-tab">
+    <div class="flex items-center justify-between mb-2">
+        <h3>Manajemen Data Asisten</h3>
+        <button class="btn btn-add" onclick="openModalAsisten()">+ Tambah Asisten</button>
+    </div>
+    <div class="table-wrapper">
+        <div class="table-wrapper-scrollable">
+            <table id="table-asisten">
+                <thead><tr>
+                    <th>No.</th><th>ID Asisten</th><th>Nama</th><th>Fingerprint ID</th><th>Hak Akses</th><th>Status Sync</th><th>Aksi</th>
+                </tr></thead>
+                <tbody id="tbody-asisten"><tr><td colspan="7" class="no-data">Memuat data...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== TAB JADWAL ==================== -->
+<div id="TabJadwal" class="tabcontent">
+    <div class="flex items-center justify-between mb-2">
+        <h3>Manajemen Jadwal Kelas</h3>
+        <button class="btn btn-add" onclick="openModalJadwal()">+ Tambah Jadwal</button>
+    </div>
+    <div class="table-wrapper">
+        <div class="table-wrapper-scrollable">
+            <table id="table-jadwal">
+                <thead><tr>
+                    <th>No.</th><th>Lokasi Lab</th><th>Hari</th><th>Kelas</th><th>Jam Mulai</th><th>Jam Selesai</th><th>Tipe</th><th>Status Sync</th><th>Aksi</th>
+                </tr></thead>
+                <tbody id="tbody-jadwal"><tr><td colspan="9" class="no-data">Memuat data...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== TAB DEVICE ==================== -->
+<div id="TabDevice" class="tabcontent">
+    <div class="mb-2">
+        <h3>Device Control Panel</h3>
+        <p class="text-muted mt-1">Mengatur mode alat fingerprint ESP32 secara langsung.</p>
+    </div>
+    <div class="device-grid" id="device-grid-container">
+        <div class="loading-text"><em>Memuat panel device...</em></div>
+    </div>
+</div>
+
+<!-- ==================== MODAL ASISTEN ==================== -->
+<div id="modalAsisten" class="modal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title" id="modalAsistenTitle">Tambah Asisten</h3>
+            <button class="modal-close" onclick="closeModal('modalAsisten')">&times;</button>
+        </div>
+        <input type="hidden" id="as_action" value="INSERT">
+        <input type="hidden" id="as_old_fid" value="">
+        <div class="form-group"><label class="form-label">Fingerprint ID (Angka)</label><input type="number" id="as_fid" class="form-input" required></div>
+        <div class="form-group"><label class="form-label">Nama Asisten</label><input type="text" id="as_nama" class="form-input" required></div>
+        <div class="form-group"><label class="form-label">ID Asisten Kampus</label><input type="text" id="as_id" class="form-input" required></div>
+        <div class="form-group"><label class="form-label">Hak Akses Lab (Pisahkan koma)</label><input type="text" id="as_hak" class="form-input" placeholder="LAB_AP, LAB_MIKRO"></div>
+        <button class="btn-submit" onclick="saveAsisten()">Simpan Data</button>
+    </div>
+</div>
+
+<!-- ==================== MODAL JADWAL ==================== -->
+<div id="modalJadwal" class="modal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title" id="modalJadwalTitle">Tambah Jadwal</h3>
+            <button class="modal-close" onclick="closeModal('modalJadwal')">&times;</button>
+        </div>
+        <input type="hidden" id="jd_action" value="INSERT">
+        <input type="hidden" id="jd_id" value="">
+        <div class="form-group"><label class="form-label">Lokasi Lab</label><input type="text" id="jd_lab" class="form-input" placeholder="LAB_AP" required></div>
+        <div class="form-group"><label class="form-label">Hari</label>
+            <select id="jd_hari" class="form-select">
+                <option value="Senin">Senin</option><option value="Selasa">Selasa</option>
+                <option value="Rabu">Rabu</option><option value="Kamis">Kamis</option>
+                <option value="Jumat">Jumat</option><option value="Sabtu">Sabtu</option><option value="Minggu">Minggu</option>
+            </select>
+        </div>
+        <div class="form-group"><label class="form-label">Nama Kelas</label><input type="text" id="jd_kelas" class="form-input" required></div>
+        <div class="form-group">
+            <label class="form-label">Jam Mulai</label>
+            <div class="time-inputs">
+                <input type="number" id="jd_mulai_h" class="form-input" min="0" max="23" placeholder="HH" required>
+                <span class="time-sep">:</span>
+                <input type="number" id="jd_mulai_m" class="form-input" min="0" max="59" placeholder="MM" required>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Jam Selesai</label>
+            <div class="time-inputs">
+                <input type="number" id="jd_selesai_h" class="form-input" min="0" max="23" placeholder="HH" required>
+                <span class="time-sep">:</span>
+                <input type="number" id="jd_selesai_m" class="form-input" min="0" max="59" placeholder="MM" required>
+            </div>
+        </div>
+        <div class="form-group"><label class="form-label">Tipe Kelas</label>
+            <select id="jd_online" class="form-select">
+                <option value="0">Offline (Tatap Muka)</option>
+                <option value="1">Online (Web/Remote)</option>
+            </select>
+        </div>
+        <button class="btn-submit" onclick="saveJadwal()">Simpan Jadwal</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    /* ==================== ASISTEN CRUD ==================== */
+    function openModalAsisten(isEdit=false, fid='', id_k='', nama='', hak='') {
+        openModal('modalAsisten');
+        if(isEdit) {
+            document.getElementById('modalAsistenTitle').innerText = "Edit Asisten";
+            document.getElementById('as_action').value = "UPDATE";
+            document.getElementById('as_old_fid').value = fid;
+            document.getElementById('as_fid').value = fid;
+            document.getElementById('as_nama').value = nama;
+            document.getElementById('as_id').value = id_k;
+            document.getElementById('as_hak').value = hak;
+        } else {
+            document.getElementById('modalAsistenTitle').innerText = "Tambah Asisten Baru";
+            document.getElementById('as_action').value = "INSERT";
+            document.getElementById('as_fid').value = '';
+            document.getElementById('as_nama').value = '';
+            document.getElementById('as_id').value = '';
+            document.getElementById('as_hak').value = 'LAB_AP, LAB_MIKRO, LAB_TEKDIG';
+        }
+    }
+
+    function saveAsisten() {
+        const data = {
+            action: document.getElementById('as_action').value,
+            old_fingerprint_id: document.getElementById('as_old_fid').value,
+            fingerprint_id: document.getElementById('as_fid').value,
+            nama: document.getElementById('as_nama').value,
+            id_asisten_kampus: document.getElementById('as_id').value,
+            hak_akses: document.getElementById('as_hak').value
+        };
+        if(!data.fingerprint_id || !data.nama || !data.id_asisten_kampus) return showToast("Isi data dengan lengkap!", "error");
+
+        fetch('/api/admin/asisten/action', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+        }).then(r => r.json()).then(res => {
+            if(res.status==='success') { closeModal('modalAsisten'); loadAsisten(); showToast("Data asisten berhasil disimpan!", "success"); }
+            else showToast(res.message, "error");
+        });
+    }
+
+    function deleteAsisten(fid, nama) {
+        if(!confirm(`Yakin ingin MENGHAPUS asisten ${nama}?`)) return;
+        fetch('/api/admin/asisten/action', {
+            method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fingerprint_id: fid})
+        }).then(() => { loadAsisten(); showToast("Asisten berhasil dihapus.", "success"); });
+    }
+
+    function loadAsisten() {
+        fetch('/api/admin/asisten').then(res => res.json()).then(data => {
+            let tbody = document.getElementById('tbody-asisten'); tbody.innerHTML = '';
+            if(data.asisten.length === 0) return tbody.innerHTML = '<tr><td colspan="7" class="no-data">Belum ada data asisten.</td></tr>';
+            data.asisten.forEach((item, i) => {
+                let badge = badgeHelper(item.is_synced, item.sync_action);
+                tbody.innerHTML += `<tr>
+                    <td>${i+1}</td>
+                    <td><strong class="font-mono">${item.id_asisten_kampus}</strong></td>
+                    <td>${item.nama}</td>
+                    <td><span class="font-mono">${item.fingerprint_id}</span></td>
+                    <td><span style="font-size:0.82rem;">${item.hak_akses}</span></td>
+                    <td>${badge}</td>
+                    <td class="action-cell">
+                        <button class="btn btn-warning btn-sm" onclick="openModalAsisten(true, '${item.fingerprint_id}', '${item.id_asisten_kampus}', '${item.nama}', '${item.hak_akses}')">✏️</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteAsisten('${item.fingerprint_id}', '${item.nama}')">🗑️</button>
+                    </td></tr>`;
+            });
+        });
+    }
+
+    /* ==================== JADWAL CRUD ==================== */
+    function openModalJadwal(isEdit=false, id='', lab='', hari='', kelas='', mulai='', selesai='', is_online=0) {
+        openModal('modalJadwal');
+        if(isEdit) {
+            document.getElementById('modalJadwalTitle').innerText = "Edit Jadwal";
+            document.getElementById('jd_action').value = "UPDATE";
+            document.getElementById('jd_id').value = id;
+            document.getElementById('jd_lab').value = lab;
+            document.getElementById('jd_hari').value = hari;
+            document.getElementById('jd_kelas').value = kelas;
+            document.getElementById('jd_mulai_h').value = mulai.split(':')[0];
+            document.getElementById('jd_mulai_m').value = mulai.split(':')[1];
+            document.getElementById('jd_selesai_h').value = selesai.split(':')[0];
+            document.getElementById('jd_selesai_m').value = selesai.split(':')[1];
+            document.getElementById('jd_online').value = is_online;
+        } else {
+            document.getElementById('modalJadwalTitle').innerText = "Tambah Jadwal Baru";
+            document.getElementById('jd_action').value = "INSERT";
+            document.getElementById('jd_id').value = '';
+            document.getElementById('jd_lab').value = '';
+            document.getElementById('jd_kelas').value = '';
+            document.getElementById('jd_mulai_h').value = '';
+            document.getElementById('jd_mulai_m').value = '';
+            document.getElementById('jd_selesai_h').value = '';
+            document.getElementById('jd_selesai_m').value = '';
+        }
+    }
+
+    function saveJadwal() {
+        let jm_h = document.getElementById('jd_mulai_h').value.padStart(2, '0');
+        let jm_m = document.getElementById('jd_mulai_m').value.padStart(2, '0');
+        let js_h = document.getElementById('jd_selesai_h').value.padStart(2, '0');
+        let js_m = document.getElementById('jd_selesai_m').value.padStart(2, '0');
+
+        const data = {
+            action: document.getElementById('jd_action').value,
+            id_jadwal: document.getElementById('jd_id').value,
+            lokasi_lab: document.getElementById('jd_lab').value,
+            hari: document.getElementById('jd_hari').value,
+            nama_kelas: document.getElementById('jd_kelas').value,
+            jam_mulai: jm_h + ':' + jm_m,
+            jam_selesai: js_h + ':' + js_m,
+            is_online: document.getElementById('jd_online').value
+        };
+        if(!data.lokasi_lab || !data.nama_kelas || !jm_h || !jm_m) return showToast("Isi data dengan lengkap!", "error");
+
+        fetch('/api/admin/jadwal/action', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+        }).then(() => { closeModal('modalJadwal'); loadJadwal(); showToast("Jadwal berhasil disimpan!", "success"); });
+    }
+
+    function deleteJadwal(id, kelas) {
+        if(!confirm(`Yakin ingin MENGHAPUS kelas ${kelas}?`)) return;
+        fetch('/api/admin/jadwal/action', {
+            method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id_jadwal: id})
+        }).then(() => { loadJadwal(); showToast("Jadwal berhasil dihapus.", "success"); });
+    }
+
+    function loadJadwal() {
+        fetch('/api/admin/jadwal').then(res => res.json()).then(data => {
+            let tbody = document.getElementById('tbody-jadwal'); tbody.innerHTML = '';
+            if(data.jadwal.length === 0) return tbody.innerHTML = '<tr><td colspan="9" class="no-data">Belum ada jadwal.</td></tr>';
+            data.jadwal.forEach((item, i) => {
+                let badge = badgeHelper(item.is_synced, item.sync_action);
+                let tipe = item.is_online ? '<span class="badge badge-online">Online</span>' : '<span class="badge badge-offline">Offline</span>';
+                tbody.innerHTML += `<tr>
+                    <td>${i+1}</td>
+                    <td><strong>${item.lokasi_lab}</strong></td>
+                    <td>${item.hari}</td>
+                    <td>${item.nama_kelas}</td>
+                    <td><span class="font-mono">${item.jam_mulai}</span></td>
+                    <td><span class="font-mono">${item.jam_selesai}</span></td>
+                    <td>${tipe}</td>
+                    <td>${badge}</td>
+                    <td class="action-cell">
+                        <button class="btn btn-warning btn-sm" onclick="openModalJadwal(true, '${item.id_jadwal}', '${item.lokasi_lab}', '${item.hari}', '${item.nama_kelas}', '${item.jam_mulai}', '${item.jam_selesai}', '${item.is_online}')">✏️</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteJadwal('${item.id_jadwal}', '${item.nama_kelas}')">🗑️</button>
+                    </td></tr>`;
+            });
+        });
+    }
+
+    /* ==================== DEVICE CONTROL ==================== */
+    function setDeviceMode(lab, mode) {
+        let inputId = document.getElementById('input-'+lab).value;
+        let targetId = inputId ? parseInt(inputId) : 0;
+        if((mode === 'enroll' || mode === 'delete') && targetId <= 0) {
+            return showToast("Anda harus mengisi ID Jari (1-127) untuk mode Enroll/Delete!", "error");
+        }
+        fetch('/api/admin/device/update', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({lab_name: lab, mode: mode, target_id: targetId})
+        }).then(() => {
+            document.getElementById('input-'+lab).value = '';
+            loadDevice();
+            showToast(`Mode ${mode.toUpperCase()} dikirim ke ${lab}`, "success");
+        });
+    }
+
+    function loadDevice() {
+        fetch('/api/admin/device').then(res => res.json()).then(data => {
+            let c = document.getElementById('device-grid-container');
+
+            if(data.labs.length === 0) {
+                c.innerHTML = '<div class="loading-text"><em>Belum ada data lab dari jadwal.</em></div>';
+                return;
+            }
+
+            if(c.innerHTML.includes('Memuat panel device')) { c.innerHTML = ''; }
+
+            data.labs.forEach(lab => {
+                let ctrl = data.device_control[lab] || {mode: 'absensi', target_id: 0};
+                let rawMode = ctrl.mode || 'absensi';
+                let mode = rawMode.toUpperCase();
+                let targetId = ctrl.target_id || 0;
+
+                let modeColor = mode === 'ABSENSI' ? 'var(--info)' : (mode === 'ENROLL' ? 'var(--success)' : 'var(--danger)');
+                let safeLabId = lab.replace(/[^a-zA-Z0-9]/g, '_');
+                let cardId = 'device-card-' + safeLabId;
+                let existingCard = document.getElementById(cardId);
+
+                if (!existingCard) {
+                    let div = document.createElement('div');
+                    div.className = 'device-card';
+                    div.id = cardId;
+                    div.innerHTML = `
+                        <h4>🖐️ ${lab.replace(/_/g, ' ')}</h4>
+                        <div class="device-info">
+                            <p>Mode Saat Ini: <strong id="mode-${safeLabId}" style="color:${modeColor}">${mode}</strong></p>
+                            <p>Target ID Jari: <strong id="target-${safeLabId}" class="font-mono">${targetId}</strong></p>
+                        </div>
+                        <hr style="border-color: var(--border); margin: 12px 0;">
+                        <div class="control-group">
+                            <input type="number" id="input-${lab}" placeholder="ID" min="1" max="127">
+                            <button class="btn-mode btn-mode-enroll" onclick="setDeviceMode('${lab}', 'enroll')">ENROLL</button>
+                            <button class="btn-mode btn-mode-delete" onclick="setDeviceMode('${lab}', 'delete')">DELETE</button>
+                        </div>
+                        <button class="btn-mode btn-mode-absen btn-mode-full" onclick="setDeviceMode('${lab}', 'absensi')" style="width:100%; margin-top:10px;">Kembali ke ABSENSI</button>
+                    `;
+                    c.appendChild(div);
+                } else {
+                    let modeElem = document.getElementById('mode-' + safeLabId);
+                    let targetElem = document.getElementById('target-' + safeLabId);
+                    if (modeElem) { modeElem.innerText = mode; modeElem.style.color = modeColor; }
+                    if (targetElem) { targetElem.innerText = targetId; }
+                }
+            });
+        }).catch(err => console.error("Error loading device control:", err));
+    }
+
+    /* ==================== INIT ==================== */
+    window.onload = function() {
+        loadAsisten(); loadJadwal(); loadDevice();
+        setInterval(loadAsisten, 10000);
+        setInterval(loadJadwal, 10000);
+        setInterval(loadDevice, 2000);
+    };
+</script>
+{% endblock %}

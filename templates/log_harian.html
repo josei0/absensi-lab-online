@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block title %}Log Absensi — SmartLab SESL{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Log Absensi Harian</h1>
+    <p class="page-subtitle">Riwayat absensi lokal — Bulan {{ current_month }}</p>
+    <div class="page-header-actions">
+        <div class="month-nav">
+            <a href="/log/{{ prev_month }}">◀ Sebelum</a>
+            <span class="month-label">{{ current_month }}</span>
+            <a href="/log/{{ next_month }}">Sesudah ▶</a>
+        </div>
+        <div style="margin-left:auto; display:flex; gap:8px;">
+            {% if is_admin %}
+            <button class="btn btn-warning" onclick="openModalLog(false)">+ Tambah Log Manual</button>
+            {% endif %}
+            <a href="/export/log/{{ current_month }}" class="btn btn-export">⬇ Export Excel</a>
+        </div>
+    </div>
+</div>
+
+<!-- Loading -->
+<div id="loading-text" class="loading-text">Memuat data...</div>
+
+<!-- Table -->
+<div class="table-wrapper" id="log-table-wrapper" style="display:none;">
+    <div class="table-wrapper-scrollable">
+        <table id="log-table">
+            <thead id="log-thead"></thead>
+            <tbody id="log-table-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal Log (Admin Only) -->
+{% if is_admin %}
+<div id="modalLog" class="modal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title" id="modalLogTitle">Tambah Log Manual</h3>
+            <button class="modal-close" onclick="closeModal('modalLog')">&times;</button>
+        </div>
+        <input type="hidden" id="log_action" value="INSERT">
+        <input type="hidden" id="log_id" value="">
+
+        <div class="form-group">
+            <label class="form-label">Asisten</label>
+            <select id="log_asisten" class="form-select" required>
+                <option value="">— Pilih Asisten —</option>
+                {% for ast in master_asisten %}
+                <option value="{{ ast.id_asisten_kampus }}|{{ ast.nama }}">{{ ast.nama }} ({{ ast.id_asisten_kampus }})</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Lokasi Lab & Kelas</label>
+            <select id="log_jadwal" class="form-select" required>
+                <option value="">— Pilih Lab & Kelas —</option>
+                {% for jdwl in master_jadwal %}
+                <option value="{{ jdwl.lokasi_lab }}|{{ jdwl.nama_kelas }}">{{ jdwl.lokasi_lab.replace('_', ' ') }} — {{ jdwl.nama_kelas }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Waktu Masuk</label>
+            <div class="time-row">
+                <input type="date" id="log_in_date" class="form-input" required>
+                <input type="time" id="log_in_time" class="form-input" step="1" lang="en-GB" required>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Waktu Keluar (Opsional)</label>
+            <div class="time-row">
+                <input type="date" id="log_out_date" class="form-input">
+                <input type="time" id="log_out_time" class="form-input" step="1" lang="en-GB">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Status</label>
+            <select id="log_status" class="form-select">
+                <option value="MASUK">MASUK</option>
+                <option value="Keluar">Keluar</option>
+                <option value="Keluar (Auto)">Keluar (Auto)</option>
+                <option value="Keluar (Forced)">Keluar (Forced)</option>
+            </select>
+        </div>
+
+        <button class="btn-submit" onclick="saveLog()">Simpan Log</button>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const currentMonth = "{{ current_month }}";
+    const isAdmin = {{ 'true' if is_admin else 'false' }};
+    const tableBody = document.getElementById('log-table-body');
+    const thead = document.getElementById('log-thead');
+    const tableWrapper = document.getElementById('log-table-wrapper');
+    const loadingText = document.getElementById('loading-text');
+
+    let headerHtml = `<tr><th>No. Log</th><th>Nama</th><th>ID Asisten</th><th>Kelas</th><th>Lokasi Lab</th><th>Tanggal</th><th>Time IN</th><th>Time OUT</th><th>Durasi</th><th>Gaji</th><th>Status</th>`;
+    if(isAdmin) headerHtml += `<th>Aksi</th>`;
+    headerHtml += `</tr>`;
+    thead.innerHTML = headerHtml;
+
+    function openModalLog(isEdit, id='', nama='', id_k='', kelas='', lab='', w_in='', w_out='', status='MASUK') {
+        openModal('modalLog');
+
+        function splitDateTime(dt_str) {
+            if(!dt_str || dt_str === 'None' || dt_str === 'null') return {d: '', t: ''};
+            let parts = dt_str.split(' ');
+            if(parts.length === 2) return {d: parts[0], t: parts[1]};
+            return {d: '', t: ''};
+        }
+
+        let in_dt = splitDateTime(w_in);
+        let out_dt = splitDateTime(w_out);
+        let selAsisten = document.getElementById('log_asisten');
+        let selJadwal = document.getElementById('log_jadwal');
+
+        if(isEdit) {
+            document.getElementById('modalLogTitle').innerText = "Edit Log Absensi";
+            document.getElementById('log_action').value = "UPDATE";
+            document.getElementById('log_id').value = id;
+
+            let as_val = id_k + '|' + nama;
+            let jd_val = lab + '|' + kelas;
+
+            if(!Array.from(selAsisten.options).some(o => o.value === as_val)) {
+                selAsisten.add(new Option(nama + " (Historis)", as_val));
+            }
+            selAsisten.value = as_val;
+
+            if(!Array.from(selJadwal.options).some(o => o.value === jd_val)) {
+                selJadwal.add(new Option(lab + " — " + kelas + " (Historis)", jd_val));
+            }
+            selJadwal.value = jd_val;
+        } else {
+            document.getElementById('modalLogTitle').innerText = "Tambah Log Manual";
+            document.getElementById('log_action').value = "INSERT";
+            document.getElementById('log_id').value = "";
+            selAsisten.value = "";
+            selJadwal.value = "";
+            let today = new Date().toISOString().split('T')[0];
+            in_dt.d = today;
+        }
+
+        document.getElementById('log_in_date').value = in_dt.d;
+        document.getElementById('log_in_time').value = in_dt.t;
+        document.getElementById('log_out_date').value = out_dt.d;
+        document.getElementById('log_out_time').value = out_dt.t;
+        document.getElementById('log_status').value = status;
+    }
+
+    function saveLog() {
+        const asistenSelect = document.getElementById('log_asisten').value;
+        const jadwalSelect = document.getElementById('log_jadwal').value;
+
+        if (!asistenSelect || !jadwalSelect) {
+            return showToast("Silakan pilih Asisten dan Jadwal Lab/Kelas!", "error");
+        }
+
+        const asistenData = asistenSelect.split('|');
+        const jadwalData = jadwalSelect.split('|');
+
+        const data = {
+            action: document.getElementById('log_action').value,
+            id: document.getElementById('log_id').value,
+            id_asisten_kampus: asistenData[0],
+            nama: asistenData[1],
+            lokasi_lab: jadwalData[0],
+            kelas: jadwalData[1],
+            in_date: document.getElementById('log_in_date').value,
+            in_time: document.getElementById('log_in_time').value,
+            out_date: document.getElementById('log_out_date').value,
+            out_time: document.getElementById('log_out_time').value,
+            status: document.getElementById('log_status').value
+        };
+
+        if(!data.in_date || !data.in_time) {
+            return showToast("Waktu Masuk tidak boleh kosong!", "error");
+        }
+
+        fetch('/api/admin/log/action', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+        }).then(r => r.json()).then(res => {
+            if(res.status==='success') {
+                closeModal('modalLog');
+                updateTable();
+                showToast("Log berhasil disimpan!", "success");
+            } else showToast(res.message, "error");
+        }).catch(err => console.error(err));
+    }
+
+    function updateTable() {
+        fetch(`/api/data/log/${currentMonth}`)
+            .then(response => response.json())
+            .then(data => {
+                const logs = data.logs;
+                tableBody.innerHTML = '';
+
+                if (logs.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="${isAdmin ? 12 : 11}" class="no-data">
+                        <div style="font-size:2rem; margin-bottom:8px;">📭</div>
+                        Data tidak ditemukan untuk bulan ini.
+                    </td></tr>`;
+                } else {
+                    logs.forEach(log => {
+                        const row = document.createElement('tr');
+                        let htmlContent = `
+                            <td><span class="font-mono">${log.id}</span></td>
+                            <td><strong>${log.nama}</strong></td>
+                            <td><span class="font-mono">${log.id_asisten_kampus}</span></td>
+                            <td>${log.kelas}</td>
+                            <td>${log.lokasi_lab}</td>
+                            <td>${log.tanggal_display}</td>
+                            <td><span class="font-mono">${log.time_in_display}</span></td>
+                            <td><span class="font-mono">${log.time_out_display}</span></td>
+                            <td><span class="font-mono">${log.durasi_display}</span></td>
+                            <td><span class="font-mono">${log.gaji_display}</span></td>
+                            <td>${log.status}</td>
+                        `;
+
+                        if(isAdmin) {
+                            let w_in = log.waktu_masuk ? log.waktu_masuk : '';
+                            let w_out = log.waktu_keluar ? log.waktu_keluar : '';
+                            htmlContent += `<td class="action-cell">
+                                <button class="btn btn-warning btn-sm" onclick="openModalLog(true, ${log.id}, '${log.nama}', '${log.id_asisten_kampus}', '${log.kelas}', '${log.lokasi_lab}', '${w_in}', '${w_out}', '${log.status}')">✏️</button>
+                            </td>`;
+                        }
+
+                        row.innerHTML = htmlContent;
+                        tableBody.appendChild(row);
+                    });
+                }
+                loadingText.style.display = 'none';
+                tableWrapper.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error fetching data:', error);
+                loadingText.innerText = "Gagal memuat data.";
+            });
+    }
+
+    updateTable();
+    setInterval(updateTable, 5000);
+</script>
+{% endblock %}

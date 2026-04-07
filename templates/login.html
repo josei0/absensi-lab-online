@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Admin — SmartLab SESL</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-dark);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Animated Background */
+        .bg-pattern {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            background:
+                radial-gradient(ellipse at 20% 50%, rgba(59,130,246,0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(239,68,68,0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(16,185,129,0.05) 0%, transparent 50%);
+            animation: bgShift 15s ease-in-out infinite alternate;
+        }
+
+        @keyframes bgShift {
+            0% { transform: scale(1) translate(0,0); }
+            100% { transform: scale(1.1) translate(-2%, 1%); }
+        }
+
+        /* Grid lines decoration */
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            background-image:
+                linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+        }
+
+        .login-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 420px;
+            padding: 20px;
+        }
+
+        .login-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(24px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-xl);
+            padding: 44px 36px;
+            box-shadow: var(--shadow-lg), 0 0 60px rgba(59,130,246,0.05);
+            animation: slideUp 500ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .login-logo {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .login-logo img {
+            height: 60px;
+            filter: brightness(1.2);
+            margin-bottom: 12px;
+        }
+
+        .login-title {
+            font-size: 1.5rem;
+            font-weight: 800;
+            text-align: center;
+            margin-bottom: 4px;
+            background: linear-gradient(135deg, var(--text-primary), var(--accent-glow));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .login-subtitle {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.88rem;
+            margin-bottom: 32px;
+        }
+
+        .login-error {
+            background: var(--danger-subtle);
+            color: var(--danger);
+            padding: 12px 16px;
+            border-radius: var(--radius-md);
+            font-size: 0.88rem;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 20px;
+            animation: shake 400ms ease;
+            border: 1px solid rgba(239,68,68,0.2);
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-8px); }
+            40% { transform: translateX(8px); }
+            60% { transform: translateX(-4px); }
+            80% { transform: translateX(4px); }
+        }
+
+        .pw-wrapper {
+            position: relative;
+        }
+
+        .pw-wrapper input {
+            padding-right: 44px;
+        }
+
+        .pw-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 1.15rem;
+            user-select: none;
+            transition: color var(--transition-fast);
+        }
+
+        .pw-toggle:hover { color: var(--text-primary); }
+
+        .login-btn {
+            width: 100%;
+            margin-top: 24px;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            color: white;
+            border: none;
+            border-radius: var(--radius-md);
+            font-family: var(--font-sans);
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            letter-spacing: 0.3px;
+        }
+
+        .login-btn:hover {
+            box-shadow: 0 6px 24px rgba(59,130,246,0.4);
+            transform: translateY(-2px);
+        }
+
+        .login-footer {
+            text-align: center;
+            margin-top: 24px;
+        }
+
+        .login-footer a {
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            transition: color var(--transition-fast);
+        }
+
+        .login-footer a:hover { color: var(--accent-glow); }
+    </style>
+</head>
+<body>
+    <div class="bg-pattern"></div>
+    <div class="bg-grid"></div>
+
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-logo">
+                <img src="/static/logo_sesl.png" alt="SESL Logo">
+            </div>
+            <div class="login-title">Admin Login</div>
+            <div class="login-subtitle">Masuk untuk mengakses panel administrasi</div>
+
+            {% if error %}
+            <div class="login-error">{{ error }}</div>
+            {% endif %}
+
+            <form method="POST">
+                <div class="form-group">
+                    <label class="form-label">Password</label>
+                    <div class="pw-wrapper">
+                        <input type="password" name="password" id="pw-input" class="form-input"
+                               placeholder="Masukkan password admin" required autofocus>
+                        <span class="pw-toggle" onclick="togglePw()">🙉</span>
+                    </div>
+                </div>
+                <button type="submit" class="login-btn">Masuk</button>
+            </form>
+
+            <div class="login-footer">
+                <a href="/">← Kembali ke Dashboard</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function togglePw() {
+            const input = document.getElementById('pw-input');
+            const icon = document.querySelector('.pw-toggle');
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.innerText = '🙈';
+            } else {
+                input.type = 'password';
+                icon.innerText = '🙉';
+            }
+        }
+    </script>
+</body>
+</html>

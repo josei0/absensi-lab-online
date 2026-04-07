@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — SmartLab SESL{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Dashboard Analitik</h1>
+    <p class="page-subtitle">Ringkasan aktivitas laboratorium secara real-time</p>
+</div>
+
+<!-- Metric Cards -->
+<div class="metric-grid">
+    <div class="metric-card">
+        <div class="metric-icon">⚡</div>
+        <div class="metric-label">Sesi Aktif Saat Ini</div>
+        <div class="metric-value" id="val-sesi">—</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-icon">📋</div>
+        <div class="metric-label">Total Absensi Hari Ini</div>
+        <div class="metric-value" id="val-absen">—</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-icon">🏆</div>
+        <div class="metric-label">Lab Teramai Hari Ini</div>
+        <div class="metric-value text-sm" id="val-lab">—</div>
+    </div>
+</div>
+
+<!-- Month Navigation -->
+<div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+    <h2 style="font-size:1.15rem;">Periode: {{ current_month }}</h2>
+    <div class="month-nav">
+        <a href="/home/{{ prev_month }}">◀ Sebelum</a>
+        <span class="month-label">{{ current_month }}</span>
+        <a href="/home/{{ next_month }}">Sesudah ▶</a>
+    </div>
+</div>
+
+<!-- Loading -->
+<div id="loading-indicator" class="loading-text" style="display:none;">Mengambil data terbaru...</div>
+
+<!-- No Data -->
+<div id="global-no-data" class="card hidden" style="text-align:center; padding:60px; color: var(--text-muted);">
+    <div style="font-size: 3rem; margin-bottom: 12px;">📭</div>
+    <p style="font-size: 1.1rem;">Belum ada data untuk bulan ini.</p>
+</div>
+
+<!-- Analytics Content -->
+<div id="analytics-content">
+    <!-- Ranking -->
+    <div id="ranking-wrapper"></div>
+
+    <!-- Charts Grid -->
+    <div class="chart-grid">
+        <div class="chart-card" id="card-pie"><div id="chart-pie"></div></div>
+        <div class="chart-card" id="card-line"><div id="chart-line"></div></div>
+        <div id="bar-charts-area" style="display: contents;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const currentMonth = "{{ current_month }}";
+    let isFirstLoad = true;
+
+    // Plotly dark theme layout defaults
+    const plotlyDarkLayout = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        font: { color: '#94A3B8', family: 'Inter, sans-serif' },
+        margin: { t: 48, r: 20, b: 48, l: 48 },
+        xaxis: { gridcolor: 'rgba(148,163,184,0.08)', zerolinecolor: 'rgba(148,163,184,0.08)' },
+        yaxis: { gridcolor: 'rgba(148,163,184,0.08)', zerolinecolor: 'rgba(148,163,184,0.08)' }
+    };
+    const plotlyConfig = { responsive: true, displayModeBar: false };
+
+    async function updateDashboard() {
+        try {
+            if(isFirstLoad) document.getElementById('loading-indicator').style.display = 'block';
+
+            const response = await fetch(`/api/data/home/${currentMonth}`);
+            if (!response.ok) throw new Error('Jaringan bermasalah');
+            const data = await response.json();
+
+            // 1. Update Metrics
+            document.getElementById('val-sesi').innerText = data.sesi_aktif;
+            document.getElementById('val-absen').innerText = data.absensi_hari_ini;
+            document.getElementById('val-lab').innerText = data.lab_teramai.replace(/_/g, ' ');
+
+            // --- Check data ---
+            const hasPie = data.graph_pie !== null;
+            const hasLine = data.graph_line !== null;
+            const hasBar = Object.keys(data.graphs_bar).length > 0;
+            const hasRanking = Object.keys(data.top_asisten).length > 0;
+
+            if (!hasPie && !hasLine && !hasBar && !hasRanking) {
+                document.getElementById('analytics-content').classList.add('hidden');
+                document.getElementById('global-no-data').classList.remove('hidden');
+            } else {
+                document.getElementById('analytics-content').classList.remove('hidden');
+                document.getElementById('global-no-data').classList.add('hidden');
+
+                // 2. Pie Chart
+                const cardPie = document.getElementById('card-pie');
+                if (hasPie) {
+                    cardPie.classList.remove('hidden');
+                    const pieData = data.graph_pie.data;
+                    pieData[0].marker = { colors: ['#3B82F6','#EF4444','#10B981','#F59E0B','#8B5CF6','#EC4899'] };
+                    pieData[0].textfont = { color: '#F1F5F9' };
+                    const pieLayout = Object.assign({}, plotlyDarkLayout, data.graph_pie.layout);
+                    Plotly.react('chart-pie', pieData, pieLayout, plotlyConfig);
+                } else { cardPie.classList.add('hidden'); }
+
+                // 3. Line Chart
+                const cardLine = document.getElementById('card-line');
+                if (hasLine) {
+                    cardLine.classList.remove('hidden');
+                    const lineLayout = Object.assign({}, plotlyDarkLayout, data.graph_line.layout);
+                    Plotly.react('chart-line', data.graph_line.data, lineLayout, plotlyConfig);
+                } else { cardLine.classList.add('hidden'); }
+
+                // 4. Bar Charts
+                const barArea = document.getElementById('bar-charts-area');
+                if (!hasBar) { barArea.innerHTML = ""; }
+                else {
+                    for (const [lab, graphJson] of Object.entries(data.graphs_bar)) {
+                        const safeId = lab.replace(/[^a-zA-Z0-9]/g, '_');
+                        const chartId = `chart-bar-${safeId}`;
+                        let chartDiv = document.getElementById(chartId);
+                        if (!chartDiv) {
+                            const wrapper = document.createElement('div');
+                            wrapper.className = 'chart-card';
+                            wrapper.innerHTML = `<div id="${chartId}"></div>`;
+                            barArea.appendChild(wrapper);
+                        }
+                        graphJson.data[0].marker = { color: '#3B82F6' };
+                        graphJson.data[0].textfont = { color: '#F1F5F9' };
+                        const barLayout = Object.assign({}, plotlyDarkLayout, graphJson.layout);
+                        Plotly.react(chartId, graphJson.data, barLayout, plotlyConfig);
+                    }
+                }
+
+                // 5. Ranking
+                const rankingWrapper = document.getElementById('ranking-wrapper');
+                let rankingHtml = "";
+                if (hasRanking) {
+                    const medals = ['🥇','🥈','🥉'];
+                    for (const [lab, asistenList] of Object.entries(data.top_asisten)) {
+                        rankingHtml += `
+                        <div class="ranking-section">
+                            <div class="ranking-title">Top 3 Asisten — ${lab.replace(/_/g, ' ')}</div>
+                            <div class="ranking-grid">`;
+                        asistenList.forEach((asisten, index) => {
+                            let rankClass = index === 0 ? 'rank-1' : (index === 1 ? 'rank-2' : 'rank-3');
+                            rankingHtml += `
+                                <div class="rank-card ${rankClass}">
+                                    <div class="rank-medal">${medals[index] || ''}</div>
+                                    <div class="rank-name">${asisten.nama}</div>
+                                    <div class="rank-hours">${asisten.durasi_jam.toFixed(2)}</div>
+                                    <div class="rank-hours-unit">Jam</div>
+                                </div>`;
+                        });
+                        rankingHtml += `</div></div>`;
+                    }
+                }
+                if(rankingWrapper.innerHTML !== rankingHtml) {
+                    rankingWrapper.innerHTML = rankingHtml;
+                }
+            }
+        } catch (error) {
+            console.error("Gagal mengambil data:", error);
+        } finally {
+            document.getElementById('loading-indicator').style.display = 'none';
+            isFirstLoad = false;
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 5000);
+</script>
+{% endblock %}

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SmartLab SESL{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+<div class="app-layout">
+    <!-- Hamburger (Mobile) -->
+    <button class="hamburger" onclick="toggleSidebar()" aria-label="Toggle menu">☰</button>
+    <div class="sidebar-overlay" onclick="closeSidebar()"></div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <a href="/home"><img src="/static/logo_sesl.png" alt="SESL" class="sidebar-logo"></a>
+            <span class="sidebar-brand">SmartLab</span>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section-title">Menu Utama</div>
+
+            <a href="/home" class="nav-item {% if active_page == 'home' %}active{% endif %}">
+                <span class="nav-icon">📊</span> Dashboard
+            </a>
+            <a href="/active" class="nav-item {% if active_page == 'active' %}active{% endif %}">
+                <span class="nav-icon">⚡</span> Sesi Aktif
+            </a>
+            <a href="/log" class="nav-item {% if active_page == 'log' %}active{% endif %}">
+                <span class="nav-icon">📋</span> Log Harian
+            </a>
+
+            <!-- Rekap Gaji Dropdown -->
+            <div class="nav-item" onclick="toggleSubnav('subnav-rekap')" data-target="subnav-rekap">
+                <span class="nav-icon">💰</span> Rekap Gaji
+                <span class="nav-arrow {% if active_page == 'rekap' %}rotated{% endif %}">▶</span>
+            </div>
+            <div class="nav-subnav {% if active_page == 'rekap' %}open{% endif %}" id="subnav-rekap">
+                {% for lab in all_labs_for_nav %}
+                <a href="/rekap/{{ lab }}" class="nav-item {% if active_lab == lab %}active{% endif %}">
+                    <span class="nav-icon">🔬</span> {{ lab.replace('_', ' ') }}
+                </a>
+                {% endfor %}
+            </div>
+
+            {% if session.get('is_admin') %}
+            <div class="nav-section-title">Administrasi</div>
+            <a href="/admin" class="nav-item {% if active_page == 'admin' %}active{% endif %}">
+                <span class="nav-icon">⚙️</span> Admin Panel
+            </a>
+            {% endif %}
+        </nav>
+
+        <div class="sidebar-footer">
+            {% if session.get('is_admin') %}
+            <a href="/logout" class="nav-item" style="color: var(--danger);">
+                <span class="nav-icon">🚪</span> Logout
+            </a>
+            {% else %}
+            <a href="/login" class="nav-item">
+                <span class="nav-icon">🔑</span> Login Admin
+            </a>
+            {% endif %}
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+</div>
+
+<script src="/static/js/main.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

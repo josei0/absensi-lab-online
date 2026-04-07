@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Sesi Aktif — SmartLab SESL{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+        <div>
+            <h1 class="page-title">Sesi Aktif</h1>
+            <p class="page-subtitle">Daftar asisten yang sedang bertugas saat ini</p>
+        </div>
+        <span class="live-dot">Live</span>
+    </div>
+</div>
+
+<!-- Filter -->
+<div class="filter-bar">
+    <label for="lab-filter">Filter Lab:</label>
+    <select id="lab-filter" class="form-select" onchange="location = this.value;" style="min-width:220px;">
+        <option value="/active/semua" {% if not lab_filter or lab_filter == 'semua' %}selected{% endif %}>
+            — Tampilkan Semua —
+        </option>
+        {% for lab in all_labs %}
+        <option value="/active/{{ lab }}" {% if lab == lab_filter %}selected{% endif %}>
+            {{ lab.replace('_', ' ') }}
+        </option>
+        {% endfor %}
+    </select>
+</div>
+
+<!-- Loading -->
+<div id="loading-text" class="loading-text">Memuat data sesi...</div>
+
+<!-- Table -->
+<div class="table-wrapper" id="active-table-wrapper" style="display:none;">
+    <div class="table-wrapper-scrollable">
+        <table id="active-table">
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Nama</th>
+                    <th>ID Asisten</th>
+                    <th>Lokasi Lab</th>
+                    <th>Kelas</th>
+                    <th>Waktu Masuk</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const currentFilter = "{{ lab_filter if lab_filter else 'semua' }}";
+    const tableBody = document.getElementById('table-body');
+    const tableWrapper = document.getElementById('active-table-wrapper');
+    const loadingText = document.getElementById('loading-text');
+
+    function updateTable() {
+        fetch(`/api/data/active/${currentFilter}`)
+            .then(response => response.json())
+            .then(data => {
+                const sessions = data.sessions;
+                tableBody.innerHTML = '';
+
+                if (sessions.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="7" class="no-data">
+                        <div style="font-size:2rem; margin-bottom:8px;">😴</div>
+                        Tidak ada sesi aktif saat ini.
+                    </td></tr>`;
+                } else {
+                    sessions.forEach((sess, index) => {
+                        const row = document.createElement('tr');
+                        row.className = sess.row_class;
+                        row.innerHTML = `
+                            <td>${sessions.length - index}</td>
+                            <td><strong>${sess.nama}</strong></td>
+                            <td><span class="font-mono">${sess.id_asisten_kampus}</span></td>
+                            <td>${sess.lokasi_lab.replace(/_/g, ' ')}</td>
+                            <td>${sess.kelas}</td>
+                            <td><span class="font-mono">${sess.waktu_masuk}</span></td>
+                            <td class="action-cell">
+                                <a href="/force_checkout/${sess.fingerprint_id}?filter=${currentFilter}"
+                                   class="btn btn-danger btn-sm"
+                                   onclick="return confirm('Apakah anda yakin ingin Force Tap-Out asisten ${sess.nama} di ${sess.lokasi_lab}?')">
+                                    ⏏ Force Out
+                                </a>
+                            </td>
+                        `;
+                        tableBody.appendChild(row);
+                    });
+                }
+
+                loadingText.style.display = 'none';
+                tableWrapper.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error fetching data:', error);
+                loadingText.innerText = "Gagal memuat data (Koneksi terputus?)";
+            });
+    }
+
+    updateTable();
+    setInterval(updateTable, 5000);
+</script>
+{% endblock %}

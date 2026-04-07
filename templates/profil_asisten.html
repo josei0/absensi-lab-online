@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ judul_halaman }} — SmartLab SESL{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Riwayat Absensi</h1>
+    <p class="page-subtitle">{{ judul_halaman }}</p>
+    <div class="page-header-actions">
+        <a href="/export/profil/{{ id_asisten_kampus }}/{{ lab_name }}/{{ month_filter }}" class="btn btn-export">⬇ Export Excel</a>
+    </div>
+</div>
+
+<!-- Loading -->
+<div id="loading-text" class="loading-text">Memuat riwayat...</div>
+
+<!-- Table -->
+<div class="table-wrapper" id="profil-table-wrapper" style="display:none;">
+    <div class="table-wrapper-scrollable">
+        <table id="profil-table">
+            <thead>
+                <tr>
+                    <th>No. Log</th><th>Nama</th><th>ID Asisten</th><th>Kelas</th><th>Lokasi Lab</th>
+                    <th>Tanggal</th><th>Time IN</th><th>Time OUT</th><th>Durasi</th>
+                    <th>Gaji (Rp)</th><th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="profil-table-body"></tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const idAsisten = "{{ id_asisten_kampus }}";
+    const labName = "{{ lab_name }}";
+    const monthFilter = "{{ month_filter }}";
+
+    const tableBody = document.getElementById('profil-table-body');
+    const tableWrapper = document.getElementById('profil-table-wrapper');
+    const loadingText = document.getElementById('loading-text');
+
+    function updateTable() {
+        fetch(`/api/data/profil/${idAsisten}/${labName}/${monthFilter}`)
+            .then(response => response.json())
+            .then(data => {
+                const logs = data.logs;
+                tableBody.innerHTML = '';
+
+                if (logs.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="11" class="no-data">
+                        <div style="font-size:2rem; margin-bottom:8px;">📭</div>
+                        Data tidak ditemukan untuk asisten ini di bulan tersebut.
+                    </td></tr>`;
+                } else {
+                    logs.forEach(log => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td><span class="font-mono">${log.id}</span></td>
+                            <td><strong>${log.nama}</strong></td>
+                            <td><span class="font-mono">${log.id_asisten_kampus}</span></td>
+                            <td>${log.kelas}</td>
+                            <td>${log.lokasi_lab}</td>
+                            <td>${log.tanggal_display}</td>
+                            <td><span class="font-mono">${log.time_in_display}</span></td>
+                            <td><span class="font-mono">${log.time_out_display}</span></td>
+                            <td><span class="font-mono">${log.durasi_display}</span></td>
+                            <td><span class="font-mono">${log.gaji_display}</span></td>
+                            <td>${log.status}</td>
+                        `;
+                        tableBody.appendChild(row);
+                    });
+                }
+
+                loadingText.style.display = 'none';
+                tableWrapper.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error fetching profil data:', error);
+                loadingText.innerText = "Gagal memuat data (Koneksi terputus?)";
+            });
+    }
+
+    updateTable();
+    setInterval(updateTable, 5000);
+</script>
+{% endblock %}
