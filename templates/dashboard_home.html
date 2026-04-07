@@ -64,16 +64,42 @@
     const currentMonth = "{{ current_month }}";
     let isFirstLoad = true;
 
+    // Deep merge helper (merges nested objects instead of overwriting)
+    function deepMerge(target, ...sources) {
+        const result = Object.assign({}, target);
+        for (const source of sources) {
+            if (!source) continue;
+            for (const key of Object.keys(source)) {
+                if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])
+                    && result[key] && typeof result[key] === 'object') {
+                    result[key] = deepMerge(result[key], source[key]);
+                } else {
+                    result[key] = source[key];
+                }
+            }
+        }
+        return result;
+    }
+
     // Plotly dark theme layout defaults
     const plotlyDarkLayout = {
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(0,0,0,0)',
-        font: { color: '#94A3B8', family: 'Inter, sans-serif' },
-        margin: { t: 48, r: 20, b: 48, l: 48 },
+        font: { color: '#94A3B8', family: 'Inter, sans-serif', size: 12 },
+        margin: { t: 48, r: 16, b: 48, l: 48 },
+        autosize: true,
+        height: 360,
         xaxis: { gridcolor: 'rgba(148,163,184,0.08)', zerolinecolor: 'rgba(148,163,184,0.08)' },
         yaxis: { gridcolor: 'rgba(148,163,184,0.08)', zerolinecolor: 'rgba(148,163,184,0.08)' }
     };
     const plotlyConfig = { responsive: true, displayModeBar: false };
+
+    // Resize all Plotly charts when window resizes
+    window.addEventListener('resize', function() {
+        document.querySelectorAll('.js-plotly-plot').forEach(el => {
+            Plotly.Plots.resize(el);
+        });
+    });
 
     async function updateDashboard() {
         try {
@@ -108,7 +134,7 @@
                     const pieData = data.graph_pie.data;
                     pieData[0].marker = { colors: ['#3B82F6','#EF4444','#10B981','#F59E0B','#8B5CF6','#EC4899'] };
                     pieData[0].textfont = { color: '#F1F5F9' };
-                    const pieLayout = Object.assign({}, plotlyDarkLayout, data.graph_pie.layout);
+                    const pieLayout = deepMerge(plotlyDarkLayout, data.graph_pie.layout);
                     Plotly.react('chart-pie', pieData, pieLayout, plotlyConfig);
                 } else { cardPie.classList.add('hidden'); }
 
@@ -116,7 +142,7 @@
                 const cardLine = document.getElementById('card-line');
                 if (hasLine) {
                     cardLine.classList.remove('hidden');
-                    const lineLayout = Object.assign({}, plotlyDarkLayout, data.graph_line.layout);
+                    const lineLayout = deepMerge(plotlyDarkLayout, data.graph_line.layout);
                     Plotly.react('chart-line', data.graph_line.data, lineLayout, plotlyConfig);
                 } else { cardLine.classList.add('hidden'); }
 
@@ -136,7 +162,7 @@
                         }
                         graphJson.data[0].marker = { color: '#3B82F6' };
                         graphJson.data[0].textfont = { color: '#F1F5F9' };
-                        const barLayout = Object.assign({}, plotlyDarkLayout, graphJson.layout);
+                        const barLayout = deepMerge(plotlyDarkLayout, graphJson.layout);
                         Plotly.react(chartId, graphJson.data, barLayout, plotlyConfig);
                     }
                 }
