@@ -690,6 +690,13 @@ def task_upload_logs():
                 nama_user = log['nama']
                 status = log['status']
                 
+                # --- GUARD: Skip log korup tanpa waktu_masuk agar tidak crash loop ---
+                if not waktu_masuk_obj:
+                    print(f" -> [SKIP] Log ID={row_id} ({nama_user}) tidak punya waktu_masuk. Ditandai synced.")
+                    cur.execute("UPDATE logs SET is_synced=1 WHERE id=?", (row_id,))
+                    conn.commit()
+                    continue
+                
                 current_ts = int(datetime.datetime.now().timestamp() * 1000)
                 if current_ts <= last_used_timestamp:
                     current_ts = last_used_timestamp + 1
@@ -2262,12 +2269,13 @@ def upsert_log_ke_sqlite(cur, fb_key, val):
     id_kampus = val.get('id_asisten_kampus', 'Unknown')
     tgl = val.get('tanggal', '').strip()
     t_in = val.get('time_in', '').strip()
+    lokasi = val.get('lokasi_lab', '')
     waktu_masuk_str = f"{tgl} {t_in}" if (tgl and t_in) else None
 
-    # --- PERBAIKAN DOUBLE VALIDATION ---
-    # Cek by Firebase Key ATAU (Cek by ID Asisten + Waktu Masuk yang sama persis)
+    # --- PERBAIKAN: Tambah lokasi_lab ke fallback lookup untuk cegah cross-lab collision ---
+    # Cek by Firebase Key ATAU (Cek by ID Asisten + Waktu Masuk + Lokasi Lab yang sama persis)
     if waktu_masuk_str:
-        cur.execute("SELECT id FROM logs WHERE firebase_key = ? OR (id_asisten_kampus = ? AND waktu_masuk = ?)", (fb_key, id_kampus, waktu_masuk_str))
+        cur.execute("SELECT id FROM logs WHERE firebase_key = ? OR (id_asisten_kampus = ? AND waktu_masuk = ? AND lokasi_lab = ?)", (fb_key, id_kampus, waktu_masuk_str, lokasi))
     else:
         cur.execute("SELECT id FROM logs WHERE firebase_key = ?", (fb_key,))
         
@@ -2276,7 +2284,6 @@ def upsert_log_ke_sqlite(cur, fb_key, val):
     
     nama = val.get('nama_asisten', 'Unknown')
     kelas = val.get('kelas', '')
-    lokasi = val.get('lokasi_lab', '')
     status = val.get('status', '')
     t_out = val.get('time_out', '').strip()
     waktu_keluar_str = f"{tgl} {t_out}" if (tgl and t_out) else None
