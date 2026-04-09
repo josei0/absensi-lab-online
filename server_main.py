@@ -327,42 +327,42 @@ def api_admin_jadwal_action():
 @login_required
 def api_admin_log_action():
     conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    data = request.json
-    action = data.get('action')
-    
-    log_id = data.get('id')
-    nama = data.get('nama')
-    id_kampus = data.get('id_asisten_kampus')
-    lokasi = data.get('lokasi_lab')
-    kelas = data.get('kelas')
-    status = data.get('status')
-    
-    # Gabungkan Tanggal dan Jam
-    waktu_masuk = f"{data.get('in_date')} {data.get('in_time')}" if data.get('in_date') and data.get('in_time') else None
-    waktu_keluar = f"{data.get('out_date')} {data.get('out_time')}" if data.get('out_date') and data.get('out_time') else None
-
-    # Cari Fingerprint ID dari master users
-    cur.execute("SELECT fingerprint_id FROM users WHERE id_asisten_kampus=?", (id_kampus,))
-    user_row = cur.fetchone()
-    fp_id = user_row[0] if user_row else 0
-
-    # Helper: Cari estimasi jam selesai kelas dari Master Jadwal
-    def get_jam_selesai(lab, kls, wt_masuk):
-        if not wt_masuk: return None
-        global CACHED_JADWAL
-        for jdwl in CACHED_JADWAL:
-            if jdwl.get('lokasi_lab') == lab and jdwl.get('nama_kelas') == kls:
-                try:
-                    mdt = datetime.datetime.strptime(wt_masuk, DB_TIME_FORMAT)
-                    j_h, j_m = map(int, jdwl['jam_selesai'].split(':'))
-                    return mdt.replace(hour=j_h, minute=j_m, second=0).strftime(DB_TIME_FORMAT)
-                except: pass
-        # Default jika tidak ada jadwal cocok: 3 Jam dari waktu masuk
-        mdt = datetime.datetime.strptime(wt_masuk, DB_TIME_FORMAT)
-        return (mdt + datetime.timedelta(hours=3)).strftime(DB_TIME_FORMAT)
-
     try:
+        cur = conn.cursor()
+        data = request.json
+        action = data.get('action')
+        
+        log_id = data.get('id')
+        nama = data.get('nama')
+        id_kampus = data.get('id_asisten_kampus')
+        lokasi = data.get('lokasi_lab')
+        kelas = data.get('kelas')
+        status = data.get('status')
+        
+        # Gabungkan Tanggal dan Jam
+        waktu_masuk = f"{data.get('in_date')} {data.get('in_time')}" if data.get('in_date') and data.get('in_time') else None
+        waktu_keluar = f"{data.get('out_date')} {data.get('out_time')}" if data.get('out_date') and data.get('out_time') else None
+
+        # Cari Fingerprint ID dari master users
+        cur.execute("SELECT fingerprint_id FROM users WHERE id_asisten_kampus=?", (id_kampus,))
+        user_row = cur.fetchone()
+        fp_id = user_row[0] if user_row else 0
+
+        # Helper: Cari estimasi jam selesai kelas dari Master Jadwal
+        def get_jam_selesai(lab, kls, wt_masuk):
+            if not wt_masuk: return None
+            global CACHED_JADWAL
+            for jdwl in CACHED_JADWAL:
+                if jdwl.get('lokasi_lab') == lab and jdwl.get('nama_kelas') == kls:
+                    try:
+                        mdt = datetime.datetime.strptime(wt_masuk, DB_TIME_FORMAT)
+                        j_h, j_m = map(int, jdwl['jam_selesai'].split(':'))
+                        return mdt.replace(hour=j_h, minute=j_m, second=0).strftime(DB_TIME_FORMAT)
+                    except: pass
+            # Default jika tidak ada jadwal cocok: 3 Jam dari waktu masuk
+            mdt = datetime.datetime.strptime(wt_masuk, DB_TIME_FORMAT)
+            return (mdt + datetime.timedelta(hours=3)).strftime(DB_TIME_FORMAT)
+
         if action == 'INSERT':
             cur.execute('''INSERT INTO logs (fingerprint_id, nama, id_asisten_kampus, waktu_masuk, waktu_keluar, status, lokasi_lab, kelas, is_synced)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)''', 
@@ -397,13 +397,12 @@ def api_admin_log_action():
                 cur.execute("DELETE FROM active_sessions WHERE log_db_id=?", (log_id,))
 
         conn.commit()
+        return jsonify({'status': 'success'})
     except Exception as e:
         print(f"[ADMIN LOG ERROR] {e}")
-        conn.close()
         return jsonify({'status': 'error', 'message': str(e)}), 500
-
-    conn.close()
-    return jsonify({'status': 'success'})
+    finally:
+        conn.close()
 
 # ==============================================================================
 # ROUTE DASHBOARD ADMIN (UI & JAVASCRIPT)
@@ -698,6 +697,8 @@ def task_upload_logs():
                 now_timestamp_ms = current_ts
 
                 if status.upper() == "MASUK":
+                    existing_fb_key = log['firebase_key']
+                    
                     data = {
                         "nama_asisten": nama_user, "id_asisten_kampus": log['id_asisten_kampus'],
                         "lokasi_lab": log['lokasi_lab'], "kelas": log['kelas'], "status": "Masuk",
@@ -705,23 +706,38 @@ def task_upload_logs():
                         "time_in": waktu_masuk_obj.strftime("%H:%M:%S"), "time_out": "",
                         "timestamp_ms": now_timestamp_ms
                     }
-                    # --- PERBAIKAN RACE CONDITION (KUNCI LOKAL DULU) ---
-                    new_ref = ref.push() # 1. Generate Key Firebase tanpa mengirim data
-                    fb_key = new_ref.key
                     
-                    # 2. Simpan dan COMMIT Key tersebut di SQLite lokal SEKARANG JUGA
-                    cur.execute("UPDATE logs SET firebase_key=?, is_synced=1 WHERE id=?", (fb_key, row_id))
-                    conn.commit() 
-                    
-                    # 3. SETELAH lokal aman, baru tembak datanya ke Firebase
-                    new_ref.set(data)
-                    print(f" -> [PUSH] Uploaded: {nama_user} (MASUK) - Key: {fb_key}")
+                    if existing_fb_key:
+                        # --- KASUS EDIT: Log sudah pernah di-push, UPDATE data di key yang sama ---
+                        ref.child(existing_fb_key).update(data)
+                        cur.execute("UPDATE logs SET is_synced=1 WHERE id=?", (row_id,))
+                        conn.commit()
+                        print(f" -> [UPDATE-MASUK] Updated: {nama_user} (MASUK DIEDIT) - Key: {existing_fb_key}")
+                    else:
+                        # --- KASUS BARU: Log belum pernah di-push, buat Key baru ---
+                        new_ref = ref.push() # 1. Generate Key Firebase tanpa mengirim data
+                        fb_key = new_ref.key
+                        
+                        # 2. Simpan dan COMMIT Key tersebut di SQLite lokal SEKARANG JUGA
+                        cur.execute("UPDATE logs SET firebase_key=?, is_synced=1 WHERE id=?", (fb_key, row_id))
+                        conn.commit() 
+                        
+                        # 3. SETELAH lokal aman, baru tembak datanya ke Firebase
+                        new_ref.set(data)
+                        print(f" -> [PUSH] Uploaded: {nama_user} (MASUK) - Key: {fb_key}")
                     
                 elif status.startswith("Keluar"):
                     firebase_key = log['firebase_key']
                     
                     if firebase_key:
+                        # --- PERBAIKAN: Kirim SEMUA field agar edit apapun ter-sync ---
                         update_data = {
+                            "nama_asisten": nama_user,
+                            "id_asisten_kampus": log['id_asisten_kampus'],
+                            "lokasi_lab": log['lokasi_lab'],
+                            "kelas": log['kelas'],
+                            "tanggal": waktu_masuk_obj.strftime("%Y-%m-%d"),
+                            "time_in": waktu_masuk_obj.strftime("%H:%M:%S"),
                             "time_out": waktu_keluar_obj.strftime("%H:%M:%S"),
                             "status": status,
                             "timestamp_ms": now_timestamp_ms 
@@ -2016,17 +2032,18 @@ def api_profil_data(id_asisten_kampus, lab_name, month_filter):
 
     return jsonify({'logs': processed_logs})
 
-def proses_item_antrean(key, val):
+def proses_item_antrean(key, val, is_silent=False):
     """
     Memproses satu item antrean dengan logika Auto-Silent.
+    is_silent: Jika True (dari startup cleanup), paksa silent tanpa kalkulasi umur.
     """
     # 1. Tentukan apakah harus Silent (Tanpa Balasan) berdasarkan Umur Data
-    ts_data = val.get('timestamp', 0)
-    ts_now = int(datetime.datetime.now().timestamp() * 1000)
-    age_seconds = (ts_now - ts_data) / 1000.0
-    
-    # Jika data sudah basi > 10 detik, jangan kirim balasan (Silent)
-    is_silent = True if age_seconds > 10 else False
+    if not is_silent:
+        ts_data = val.get('timestamp', 0)
+        ts_now = int(datetime.datetime.now().timestamp() * 1000)
+        age_seconds = (ts_now - ts_data) / 1000.0
+        # Jika data sudah basi > 10 detik, jangan kirim balasan (Silent)
+        is_silent = True if age_seconds > 10 else False
     
     prefix_log = "[ONLINE-DELAY]" if is_silent else "[ONLINE]"
 
@@ -2048,6 +2065,7 @@ def proses_item_antrean(key, val):
             db.reference(f'online_queue/{key}').delete()
         except: pass
 
+    conn = None
     try:
         conn = sqlite3.connect(DB_NAME)
         cur = conn.cursor()
@@ -2063,14 +2081,14 @@ def proses_item_antrean(key, val):
         # 1. Validasi Password
         if password_input != ONLINE_TOKEN:
             reply_and_clean('ERROR', 'Password Global Lab Salah')
-            conn.close(); return
+            return
 
         # 2. Cek User & Hak Akses
         cur.execute("SELECT fingerprint_id, nama, hak_akses FROM users WHERE id_asisten_kampus=?", (id_kampus,))
         user = cur.fetchone()
         if not user:
             reply_and_clean('ERROR', f'User {id_kampus} tidak ditemukan.')
-            conn.close(); return
+            return
         
         fp_id, nama, hak_akses_str = user
         
@@ -2078,7 +2096,7 @@ def proses_item_antrean(key, val):
         list_hak_akses = [h.strip() for h in hak_akses_str.split(',')]
         if lab_input not in list_hak_akses:
             reply_and_clean('ERROR', f'Tidak punya hak akses di {lab_input}.')
-            conn.close(); return
+            return
 
         # 4. Validasi Waktu
         waktu_request = datetime.datetime.fromtimestamp(timestamp_req / 1000.0)
@@ -2087,7 +2105,7 @@ def proses_item_antrean(key, val):
         if not jadwal or jadwal.get('is_online') != True or jadwal.get('nama_kelas') != kelas_input:
             if tipe_req.upper() == "MASUK":
                 reply_and_clean('ERROR', 'Jadwal Kelas/Waktu tidak valid untuk Online.')
-                conn.close(); return
+                return
 
         # 5. Eksekusi
         lokasi_final = lab_input 
@@ -2127,10 +2145,13 @@ def proses_item_antrean(key, val):
             else:
                 reply_and_clean('ERROR', 'Tidak ada sesi aktif untuk di-logout.')
 
-        conn.commit(); conn.close()
+        conn.commit()
             
     except Exception as e:
         print(f"[ONLINE PROCESS ERROR] {e}")
+    finally:
+        if conn:
+            conn.close()
 
 
 def stream_online_queue_listener():
@@ -2274,6 +2295,15 @@ def upsert_log_ke_sqlite(cur, fb_key, val):
     if existing:
         # UPDATE LOGS (Bisa jadi karena Listener mendeteksi key, atau menemukan duplikat waktu)
         log_db_id = existing[0]
+        
+        # --- PERBAIKAN: Jangan timpa jika data lokal sedang menunggu upload ---
+        cur.execute("SELECT is_synced FROM logs WHERE id=?", (log_db_id,))
+        sync_row = cur.fetchone()
+        if sync_row and sync_row[0] == 0:
+            # Data lokal lebih baru (belum ter-upload), SKIP update dari Firebase
+            return
+        # -----------------------------------------------------------------
+        
         cur.execute('''
             UPDATE logs SET 
             status=?, waktu_masuk=?, waktu_keluar=?, lokasi_lab=?, kelas=?, firebase_key=?, is_synced=1

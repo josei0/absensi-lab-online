@@ -87,6 +87,8 @@
                 <option value="MASUK">MASUK</option>
                 <option value="Keluar">Keluar</option>
                 <option value="Keluar (Auto)">Keluar (Auto)</option>
+                <option value="Keluar (Auto-Cleanup)">Keluar (Auto-Cleanup)</option>
+                <option value="Keluar (Auto-Replaced)">Keluar (Auto-Replaced)</option>
                 <option value="Keluar (Forced)">Keluar (Forced)</option>
             </select>
         </div>
@@ -157,7 +159,10 @@
         document.getElementById('log_in_time').value = in_dt.t;
         document.getElementById('log_out_date').value = out_dt.d;
         document.getElementById('log_out_time').value = out_dt.t;
-        document.getElementById('log_status').value = status;
+        // Normalisasi status agar cocok dengan value dropdown (case-sensitive)
+        let normalizedStatus = status;
+        if (status.toUpperCase() === 'MASUK') normalizedStatus = 'MASUK';
+        document.getElementById('log_status').value = normalizedStatus;
     }
 
     function saveLog() {
