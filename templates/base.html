@@ -4,65 +4,81 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}SmartLab SESL{% endblock %}</title>
+    <!-- Instant sidebar state: prevent flash of expanded→collapsed -->
+    <script>
+        if (window.innerWidth > 768 && localStorage.getItem('sidebar-collapsed') === 'true') {
+            document.documentElement.classList.add('sidebar-is-collapsed');
+        }
+    </script>
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     {% block head_extra %}{% endblock %}
 </head>
 <body>
 <div class="app-layout">
-    <!-- Hamburger (Mobile) -->
+    <!-- Mobile Hamburger (shown only on mobile) -->
     <button class="hamburger" onclick="toggleSidebar()" aria-label="Toggle menu">☰</button>
     <div class="sidebar-overlay" onclick="closeSidebar()"></div>
 
     <!-- Sidebar -->
-    <aside class="sidebar">
-        <div class="sidebar-header">
-            <a href="/home"><img src="/static/logo_sesl.png" alt="SESL" class="sidebar-logo"></a>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header" onclick="handleHeaderClick(event)">
+            <img src="/static/logo_sesl.png" alt="SESL" class="sidebar-logo">
+            <span class="sidebar-expand-icon">☰</span>
             <span class="sidebar-brand">SmartLab</span>
+            <button class="sidebar-toggle" onclick="event.stopPropagation(); toggleSidebar()" aria-label="Toggle sidebar">☰</button>
         </div>
 
         <nav class="sidebar-nav">
             <div class="nav-section-title">Menu Utama</div>
 
-            <a href="/home" class="nav-item {% if active_page == 'home' %}active{% endif %}">
-                <span class="nav-icon">📊</span> Dashboard
+            <a href="/home" class="nav-item {% if active_page == 'home' %}active{% endif %}" data-tooltip="Dashboard">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">Dashboard</span>
             </a>
-            <a href="/active" class="nav-item {% if active_page == 'active' %}active{% endif %}">
-                <span class="nav-icon">⚡</span> Sesi Aktif
+            <a href="/active" class="nav-item {% if active_page == 'active' %}active{% endif %}" data-tooltip="Sesi Aktif">
+                <span class="nav-icon">⚡</span>
+                <span class="nav-text">Sesi Aktif</span>
             </a>
-            <a href="/log" class="nav-item {% if active_page == 'log' %}active{% endif %}">
-                <span class="nav-icon">📋</span> Log Harian
+            <a href="/log" class="nav-item {% if active_page == 'log' %}active{% endif %}" data-tooltip="Log Harian">
+                <span class="nav-icon">📋</span>
+                <span class="nav-text">Log Harian</span>
             </a>
 
             <!-- Rekap Gaji Dropdown -->
-            <div class="nav-item" onclick="toggleSubnav('subnav-rekap')" data-target="subnav-rekap">
-                <span class="nav-icon">💰</span> Rekap Gaji
+            <div class="nav-item" id="rekap-trigger" onclick="handleRekapClick(event)" data-target="subnav-rekap" data-tooltip="Rekap Gaji">
+                <span class="nav-icon">💰</span>
+                <span class="nav-text">Rekap Gaji</span>
                 <span class="nav-arrow {% if active_page == 'rekap' %}rotated{% endif %}">▶</span>
             </div>
             <div class="nav-subnav {% if active_page == 'rekap' %}open{% endif %}" id="subnav-rekap">
                 {% for lab in all_labs_for_nav %}
-                <a href="/rekap/{{ lab }}" class="nav-item {% if active_lab == lab %}active{% endif %}">
-                    <span class="nav-icon">🔬</span> {{ lab.replace('_', ' ') }}
+                <a href="/rekap/{{ lab }}" class="nav-item {% if active_lab == lab %}active{% endif %}" data-tooltip="{{ lab.replace('_', ' ') }}">
+                    <span class="nav-icon">🔬</span>
+                    <span class="nav-text">{{ lab.replace('_', ' ') }}</span>
                 </a>
                 {% endfor %}
             </div>
 
             {% if session.get('is_admin') %}
             <div class="nav-section-title">Administrasi</div>
-            <a href="/admin" class="nav-item {% if active_page == 'admin' %}active{% endif %}">
-                <span class="nav-icon">⚙️</span> Admin Panel
+            <a href="/admin" class="nav-item {% if active_page == 'admin' %}active{% endif %}" data-tooltip="Admin Panel">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-text">Admin Panel</span>
             </a>
             {% endif %}
         </nav>
 
         <div class="sidebar-footer">
             {% if session.get('is_admin') %}
-            <a href="/logout" class="nav-item" style="color: var(--danger);">
-                <span class="nav-icon">🚪</span> Logout
+            <a href="/logout" class="nav-item" style="color: var(--danger);" data-tooltip="Logout">
+                <span class="nav-icon">🚪</span>
+                <span class="nav-text">Logout</span>
             </a>
             {% else %}
-            <a href="/login" class="nav-item">
-                <span class="nav-icon">🔑</span> Login Admin
+            <a href="/login" class="nav-item" data-tooltip="Login Admin">
+                <span class="nav-icon">🔑</span>
+                <span class="nav-text">Login Admin</span>
             </a>
             {% endif %}
         </div>
@@ -73,6 +89,20 @@
         {% block content %}{% endblock %}
     </main>
 </div>
+
+<!-- Popup container for collapsed Rekap Gaji dropdown -->
+<div class="popup-subnav" id="popup-rekap" style="display:none;">
+    <div class="popup-title">Rekap Gaji</div>
+    {% for lab in all_labs_for_nav %}
+    <a href="/rekap/{{ lab }}" class="nav-item {% if active_lab == lab %}active{% endif %}">
+        <span class="nav-icon">🔬</span>
+        <span class="nav-text">{{ lab.replace('_', ' ') }}</span>
+    </a>
+    {% endfor %}
+</div>
+
+<!-- JS Tooltip element -->
+<div class="sidebar-tooltip" id="sidebar-tooltip"></div>
 
 <script src="/static/js/main.js"></script>
 {% block scripts %}{% endblock %}
