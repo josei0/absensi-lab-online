@@ -2272,14 +2272,18 @@ def upsert_log_ke_sqlite(cur, fb_key, val):
     lokasi = val.get('lokasi_lab', '')
     waktu_masuk_str = f"{tgl} {t_in}" if (tgl and t_in) else None
 
-    # --- PERBAIKAN: Tambah lokasi_lab ke fallback lookup untuk cegah cross-lab collision ---
-    # Cek by Firebase Key ATAU (Cek by ID Asisten + Waktu Masuk + Lokasi Lab yang sama persis)
-    if waktu_masuk_str:
-        cur.execute("SELECT id FROM logs WHERE firebase_key = ? OR (id_asisten_kampus = ? AND waktu_masuk = ? AND lokasi_lab = ?)", (fb_key, id_kampus, waktu_masuk_str, lokasi))
-    else:
-        cur.execute("SELECT id FROM logs WHERE firebase_key = ?", (fb_key,))
-        
+    # --- PERBAIKAN v2: Fallback lookup hanya boleh cocok dengan record lokal yang belum punya firebase_key ---
+    # Langkah 1: Cek exact match by Firebase Key
+    cur.execute("SELECT id FROM logs WHERE firebase_key = ?", (fb_key,))
     existing = cur.fetchone()
+    
+    # Langkah 2: Jika tidak ditemukan by key, cek fallback HANYA untuk record lokal (tanpa firebase_key)
+    if not existing and waktu_masuk_str:
+        cur.execute("""SELECT id FROM logs 
+                       WHERE id_asisten_kampus = ? AND waktu_masuk = ? AND lokasi_lab = ? 
+                       AND (firebase_key IS NULL OR firebase_key = '')""", 
+                    (id_kampus, waktu_masuk_str, lokasi))
+        existing = cur.fetchone()
     # ------------------------------------
     
     nama = val.get('nama_asisten', 'Unknown')
@@ -2293,7 +2297,8 @@ def upsert_log_ke_sqlite(cur, fb_key, val):
         if waktu_masuk_str: datetime.datetime.strptime(waktu_masuk_str, DB_TIME_FORMAT)
         if waktu_keluar_str: datetime.datetime.strptime(waktu_keluar_str, DB_TIME_FORMAT)
     except ValueError:
-        return # Skip jika format jam rusak
+        print(f"  [SKIP-FORMAT] Data '{fb_key}' dilewati karena format tanggal/jam rusak: tanggal='{tgl}', time_in='{t_in}', time_out='{t_out}'")
+        return False # Skip jika format jam rusak
     
     cur.execute("SELECT fingerprint_id FROM users WHERE id_asisten_kampus=?", (id_kampus,))
     user_row = cur.fetchone()
@@ -2308,7 +2313,8 @@ def upsert_log_ke_sqlite(cur, fb_key, val):
         sync_row = cur.fetchone()
         if sync_row and sync_row[0] == 0:
             # Data lokal lebih baru (belum ter-upload), SKIP update dari Firebase
-            return
+            print(f"  [SKIP-UNSYNCED] Data '{fb_key}' ({nama}) dilewati karena data lokal belum ter-upload (is_synced=0).")
+            return False
         # -----------------------------------------------------------------
         
         cur.execute('''
@@ -2369,6 +2375,8 @@ def upsert_log_ke_sqlite(cur, fb_key, val):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', (fp_id, nama, id_kampus, waktu_masuk_str, jam_selesai_str, lokasi, kelas, last_log_id))
             print(f"  ->[DOWN-SYNC] Active Session didaftarkan untuk: {nama}")
 
+    return True
+
 def stream_absensi_log_listener():
     """
     Mendengarkan SETIAP perubahan yang terjadi di node 'absensi_log' di Firebase.
@@ -2426,10 +2434,13 @@ def stream_absensi_log_listener():
                     #         return "9999-12-31 23:59:59"
                     # sorted_logs = sorted(event.data.items(), key=sort_by_event_time, reverse=False)
                     count = 0
+                    skipped = 0
                     for fb_key, log_data in sorted_logs:
-                        upsert_log_ke_sqlite(cur, fb_key, log_data)
-                        count += 1
-                    print(f"[LOG-STREAM] Selesai memuat {count} data awal/terbaru.")
+                        if upsert_log_ke_sqlite(cur, fb_key, log_data):
+                            count += 1
+                        else:
+                            skipped += 1
+                    print(f"[LOG-STREAM] Selesai memuat {count} data. ({skipped} dilewati dari total {count + skipped})")
 
             conn.commit()
             conn.close()
