@@ -28,12 +28,7 @@
                     <th>Nama</th>
                     <th>ID Asisten</th>
                     <th>Total Gaji</th>
-                    <th>Gaji Pokok</th>
-                    <th>Sisa Anggaran</th>
                     <th>Kelebihan</th>
-                    <th>Proporsi Bonus</th>
-                    <th>Bonus</th>
-                    <th>GAJI FINAL</th>
                     <th style="width:40px;"></th>
                 </tr>
             </thead>
@@ -59,7 +54,7 @@
                 tableBody.innerHTML = '';
 
                 if (data.length === 0) {
-                    tableBody.innerHTML = `<tr><td colspan="11" class="no-data">
+                    tableBody.innerHTML = `<tr><td colspan="6" class="no-data">
                         <div style="font-size:2rem; margin-bottom:8px;">📭</div>
                         Data tidak ditemukan untuk bulan ini.
                     </td></tr>`;
@@ -71,13 +66,8 @@
                             <td>${index + 1}</td>
                             <td><strong>${item.nama}</strong></td>
                             <td><span class="font-mono">${item.id_asisten}</span></td>
-                            <td class="font-mono text-right">${item.total_gaji}</td>
-                            <td class="font-mono text-right">${item.gaji_pokok}</td>
-                            <td class="font-mono text-right">${item.sisa_anggaran}</td>
+                            <td class="font-mono text-right fw-bold text-accent">${item.total_gaji}</td>
                             <td class="font-mono text-right">${item.kelebihan_gaji}</td>
-                            <td class="text-center">${item.proporsi_bonus}</td>
-                            <td class="font-mono text-right">${item.bonus_diterima}</td>
-                            <td class="font-mono text-right fw-bold text-accent">${item.gaji_final}</td>
                             <td style="border:none; background:transparent;">
                                 <a href="${profilUrl}" class="view-icon" title="Lihat riwayat di {{ lab_name_display }} bulan ini">👁️</a>
                             </td>

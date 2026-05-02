@@ -1354,46 +1354,24 @@ def export_rekap(lab_name, month_filter):
 
         tarif_per_menit = 281.25
         anggaran_maks = 1080000
-        total_kelebihan_gaji = 0
-        total_sisa_anggaran = 0
         
         temp_data = []
         
-        # Hitung Dasar
+        # Kalkulasi Gaji
         for nama, data in rekap.items():
             total_gaji = data['total_menit'] * tarif_per_menit
-            gaji_pokok = min(total_gaji, anggaran_maks)
-            sisa_anggaran = max(0, anggaran_maks - total_gaji)
             kelebihan_gaji = max(0, total_gaji - anggaran_maks)
-            
-            total_sisa_anggaran += sisa_anggaran
-            total_kelebihan_gaji += kelebihan_gaji
             
             temp_data.append({
                 'Nama': nama, 
                 'ID Asisten': data['id_asisten'],
                 'Total Gaji': total_gaji,
-                'Gaji Pokok': gaji_pokok,
-                'Sisa Anggaran': sisa_anggaran,
                 'Kelebihan Gaji': kelebihan_gaji,
-                # Placeholder
-                'Proporsi Bonus': 0, 
-                'Bonus Diterima': 0, 
-                'GAJI FINAL': 0
             })
 
-        # Hitung Bonus & Final
-        for item in temp_data:
-            proporsi = (item['Kelebihan Gaji'] / total_kelebihan_gaji) if total_kelebihan_gaji > 0 else 0
-            bonus_diterima = proporsi * total_sisa_anggaran
-            
-            item['Proporsi Bonus'] = proporsi
-            item['Bonus Diterima'] = bonus_diterima
-            item['GAJI FINAL'] = item['Gaji Pokok'] + bonus_diterima
-
         # 3. URUTKAN & BERI NOMOR (Agar sama persis dengan Dashboard)
-        # Urutkan berdasarkan Gaji Final Tertinggi
-        temp_data_sorted = sorted(temp_data, key=lambda x: x['GAJI FINAL'], reverse=True)
+        # Urutkan berdasarkan Total Gaji Tertinggi
+        temp_data_sorted = sorted(temp_data, key=lambda x: x['Total Gaji'], reverse=True)
         
         # Tambahkan kolom "No."
         final_data_list = []
@@ -1404,12 +1382,7 @@ def export_rekap(lab_name, month_filter):
                 'Nama': item['Nama'],
                 'ID Asisten': item['ID Asisten'],
                 'Total Gaji': item['Total Gaji'],
-                'Gaji Pokok': item['Gaji Pokok'],
-                'Sisa Anggaran': item['Sisa Anggaran'],
                 'Kelebihan Gaji': item['Kelebihan Gaji'],
-                'Proporsi Bonus': item['Proporsi Bonus'],
-                'Bonus Diterima': item['Bonus Diterima'],
-                'GAJI FINAL': item['GAJI FINAL']
             }
             final_data_list.append(row)
 
@@ -1442,6 +1415,7 @@ def export_rekap(lab_name, month_filter):
                 cell.border = thin_border
 
             # B. Styling Data Row
+            # Kolom: A=No, B=Nama, C=ID Asisten, D=Total Gaji, E=Kelebihan Gaji
             for row in worksheet.iter_rows(min_row=2):
                 for cell in row:
                     cell.border = thin_border
@@ -1452,18 +1426,9 @@ def export_rekap(lab_name, month_filter):
                     else:
                         cell.alignment = center_align
                     
-                    # Format Rupiah (Kolom D, E, F, G, I, J)
-                    # D=4, E=5, F=6, G=7, I=9, J=10
-                    if cell.column in [4, 5, 6, 7, 9, 10]:
+                    # Format Rupiah (Kolom D=4, E=5)
+                    if cell.column in [4, 5]:
                         cell.number_format = '"Rp"#,##0.00'
-                    
-                    # Format Persen (Kolom H / ke-8)
-                    if cell.column == 8:
-                        cell.number_format = '0.00%'
-                    
-                    # Bold untuk Gaji Final (Kolom J)
-                    if cell.column == 10:
-                        cell.font = Font(bold=True)
 
             # C. Auto-adjust Column Width
             for column in worksheet.columns:
@@ -1477,7 +1442,7 @@ def export_rekap(lab_name, month_filter):
                         pass
                 
                 # Manual override untuk kolom Uang agar lebar pas
-                if column_name in ['D', 'E', 'F', 'G', 'I', 'J']:
+                if column_name in ['D', 'E']:
                     adjusted_width = 20
                 else:
                     adjusted_width = (max_length + 2)
@@ -1884,47 +1849,25 @@ def api_rekap_data(lab_name, month_filter=None):
 
     tarif_per_menit = 281.25
     anggaran_maks = 1080000
-    total_sisa_anggaran = 0
-    total_kelebihan_gaji = 0
     
     data_final = []
     
-    # Kalkulasi Tahap 1
+    # Kalkulasi Gaji
     for nama, data in rekap.items():
         total_gaji = data['total_menit'] * tarif_per_menit
-        gaji_pokok = min(total_gaji, anggaran_maks)
-        sisa_anggaran = max(0, anggaran_maks - total_gaji)
         kelebihan_gaji = max(0, total_gaji - anggaran_maks)
-        
-        total_sisa_anggaran += sisa_anggaran
-        total_kelebihan_gaji += kelebihan_gaji
         
         data_final.append({
             'nama': nama, 
             'id_asisten': data['id_asisten'],
-            'total_gaji_raw': total_gaji,      # Simpan raw value untuk sorting
-            'gaji_pokok_raw': gaji_pokok,
-            'sisa_anggaran_raw': sisa_anggaran,
+            'total_gaji_raw': total_gaji,
             'kelebihan_gaji_raw': kelebihan_gaji,
             'total_gaji': format_rupiah(total_gaji),
-            'gaji_pokok': format_rupiah(gaji_pokok),
-            'sisa_anggaran': format_rupiah(sisa_anggaran),
-            'kelebihan_gaji': format_rupiah(kelebihan_gaji)
+            'kelebihan_gaji': format_rupiah(kelebihan_gaji),
         })
 
-    # Kalkulasi Tahap 2 (Bonus)
-    for data in data_final:
-        proporsi = (data['kelebihan_gaji_raw'] / total_kelebihan_gaji) if total_kelebihan_gaji > 0 else 0
-        bonus_diterima = proporsi * total_sisa_anggaran
-        gaji_final = data['gaji_pokok_raw'] + bonus_diterima
-        
-        data['proporsi_bonus'] = f"{proporsi:.2%}"
-        data['bonus_diterima'] = format_rupiah(bonus_diterima)
-        data['gaji_final'] = format_rupiah(gaji_final)
-        data['gaji_final_raw'] = gaji_final # Untuk sorting di JS jika perlu, atau sorting di sini
-
-    # Urutkan berdasarkan Gaji Final Tertinggi
-    data_final_sorted = sorted(data_final, key=lambda item: item['gaji_final_raw'], reverse=True)
+    # Urutkan berdasarkan Total Gaji Tertinggi
+    data_final_sorted = sorted(data_final, key=lambda item: item['total_gaji_raw'], reverse=True)
 
     return jsonify({'data': data_final_sorted})
 
