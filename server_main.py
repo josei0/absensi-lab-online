@@ -1429,7 +1429,7 @@ def export_rekap(lab_name, month_filter):
                     # Format Rupiah (Kolom D=4, E=5)
                     if cell.column in [4, 5]:
                         cell.number_format = '"Rp"#,##0.00'
-
+                    
             # C. Auto-adjust Column Width
             for column in worksheet.columns:
                 max_length = 0

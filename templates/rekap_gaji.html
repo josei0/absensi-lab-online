@@ -11,7 +11,8 @@
             <span class="month-label">{{ current_month }}</span>
             <a href="/rekap/{{ lab_name }}/{{ next_month }}">Sesudah ▶</a>
         </div>
-        <a href="/export/rekap/{{ lab_name }}/{{ current_month }}" class="btn btn-export" style="margin-left:auto;">⬇ Export Excel</a>
+        <a href="/export/rekap/{{ lab_name }}/{{ current_month }}" class="btn btn-export" style="margin-left:auto;">⬇
+            Export Excel</a>
     </div>
 </div>
 
@@ -66,8 +67,8 @@
                             <td>${index + 1}</td>
                             <td><strong>${item.nama}</strong></td>
                             <td><span class="font-mono">${item.id_asisten}</span></td>
-                            <td class="font-mono text-right fw-bold text-accent">${item.total_gaji}</td>
-                            <td class="font-mono text-right">${item.kelebihan_gaji}</td>
+                            <td class="font-mono text-left fw-bold text-accent">${item.total_gaji}</td>
+                            <td class="font-mono text-left">${item.kelebihan_gaji}</td>
                             <td style="border:none; background:transparent;">
                                 <a href="${profilUrl}" class="view-icon" title="Lihat riwayat di {{ lab_name_display }} bulan ini">👁️</a>
                             </td>
