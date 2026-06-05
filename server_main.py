@@ -16,6 +16,9 @@ from functools import wraps
 
 # ================= KONFIGURASI =================
 DB_NAME = "database_lab.sqlite"
+if os.environ.get('FLASK_ENV') == 'testing':
+    DB_NAME = "test_database_lab.sqlite"
+    print("[TEST MODE] Menggunakan database isolasi:", DB_NAME)
 # Ganti dengan URL Database Anda (Akhiri dengan tanda slash /)
 FIREBASE_DB_URL = "https://absensi-lab-ap-default-rtdb.asia-southeast1.firebasedatabase.app/" 
 
@@ -53,6 +56,15 @@ IS_MASTER_DATA_READY = False
 # ================= SETUP FIREBASE =================
 cred = credentials.Certificate("firebase_credentials.json")
 firebase_admin.initialize_app(cred, {'databaseURL': FIREBASE_DB_URL})
+
+if os.environ.get('FLASK_ENV') == 'testing':
+    print("[TEST MODE] Membelokkan traffic Firebase ke node /test_sandbox/")
+    original_reference = firebase_admin.db.reference
+    def test_reference(path='', *args, **kwargs):
+        sandbox_path = f"test_sandbox/{path}" if path else "test_sandbox"
+        return original_reference(sandbox_path, *args, **kwargs)
+    firebase_admin.db.reference = test_reference
+    db.reference = test_reference
 
 
 # --- FORMAT WAKTU STANDAR UNTUK DATABASE ---
@@ -2479,5 +2491,10 @@ if __name__ == '__main__':
     threading.Thread(target=task_master_data_watchdog, daemon=True).start()
     threading.Thread(target=task_cleanup_firebase_responses, daemon=True).start()
     
-    print("SERVER BERJALAN di Port 5000...")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    port = 5000
+    if os.environ.get('FLASK_ENV') == 'testing':
+        port = 5001
+        print("[TEST MODE] Menggunakan port khusus testing:", port)
+
+    print(f"SERVER BERJALAN di Port {port}...")
+    app.run(host='0.0.0.0', port=port, debug=False)

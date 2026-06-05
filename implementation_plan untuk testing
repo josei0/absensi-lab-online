@@ -1,0 +1,306 @@
+# SmartLab IoT Testing Framework — Updated Implementation Plan
+
+Membangun **test harness Python** modular untuk menguji seluruh aspek sistem absensi SmartLab (ESP32 + Flask Server + Firebase RTDB) secara aman dan menghasilkan **Excel report** terorganisir per kategori pengujian.
+
+---
+
+## 📋 Jawaban Atas Review & Pertanyaan Anda
+
+Berikut adalah klarifikasi dan penjelasan detail mengenai poin-poin yang Anda tanyakan pada review sebelumnya:
+
+### 1. Arti Kolom "Expected" (Uji Fingerprint - Kategori 1)
+* **Penjelasan**: Kolom `Expected` berisi **Ground Truth** (harapan sistem yang sebenarnya). 
+  * Jika yang menempelkan jari adalah **Asisten Terdaftar**, maka `Expected = Accept` (diterima).
+  * Jika yang menempelkan jari adalah **Jari Asing / Tidak Terdaftar**, maka `Expected = Reject` (ditolak).
+* **Fungsi**: Kita membandingkan `Expected` dengan `Actual Status` (respon asli server) untuk mengisi kolom `Match? (Yes/No)`. Jika tidak cocok, berarti ada kesalahan pembacaan biometrik (*False Accept* atau *False Reject*).
+
+### 2. Tujuan & Penjelasan "3 Kolom Ping" (Konektivitas IP - Kategori 2)
+* **Tujuan**: Pengujian ping dilakukan untuk mengukur kualitas koneksi LAN antara Server dan ketiga ESP32 (yang menggunakan IP Static dari router: `192.168.137.x`). Ini penting untuk memastikan alat dalam kondisi online sebelum pengujian lain dimulai.
+* **Mengapa ada 3 Nilai Ping?**
+  * **Ping Min (ms)**: Waktu tercepat satu paket data kembali (kondisi jaringan terbaik).
+  * **Ping Max (ms)**: Waktu terlambat satu paket data kembali (kondisi jaringan terburuk).
+  * **Ping Avg (ms)**: Rata-rata dari seluruh pengiriman paket ping (kualitas jaringan aktual).
+  * *Dengan membandingkan ketiganya, kita bisa mendeteksi stabilitas jaringan. Jika jarak Min dan Max terlalu jauh, berarti jaringan tidak stabil (tinggi Jitter).*
+
+### 3. Satuan "Waktu Request" & "Waktu Response" (Uji Latensi - Kategori 3)
+* **Satuan**:
+  * `Waktu Request` and `Waktu Response` menggunakan format **Timestamp ISO 8601 dengan akurasi milidetik** (`HH:MM:SS.ffffff` atau `YYYY-MM-DD HH:MM:SS.ffffff`).
+  * `Latency (ms)` menggunakan satuan **Milidetik (ms)** yang dihitung dari selisih `Waktu Response` minus `Waktu Request`.
+
+### 4. Penamaan Kolom Lab Terlibat (Kategori 3)
+* Kolom latency telah diubah dari nama generik (Lab 1, Lab 2, Lab 3) menjadi nama riil lab Anda: 
+  * `Latency LAB_AP (ms)`
+  * `Latency LAB_TEKDIG (ms)`
+  * `Latency LAB_MIKRO (ms)`
+
+### 5. Penghapusan Uji Beda Provider WiFi (Kategori 4)
+* **Keputusan**: Sesuai instruksi Anda, **pengujian beda provider WiFi dibatalkan**.
+* **Perubahan**: Variabel `WIFI_PROVIDERS` dihapus dari konfigurasi. Pengujian fokus pada kualitas transmisi data SQLite ➔ Firebase dalam satu jaringan WiFi lokal yang stabil, tanpa ada perbandingan antar provider. Sheet `Justifikasi Provider` dihapus.
+
+### 6. Indikator Multiuser pada Failover (Kategori 5)
+* **Perubahan**: Uji failover (LAN putus/nyambung) kini melibatkan **simulasi multiuser di ketiga lab sekaligus** (`LAB_AP`, `LAB_TEKDIG`, `LAB_MIKRO`). Kita menguji apakah saat jaringan putus dan tersambung kembali, data dari ketiga lab tersebut dapat disinkronkan secara bersamaan tanpa ada data yang tertukar atau hilang (*Zero Data Loss*).
+
+### 7. Kecepatan & Jumlah Sesi pada Server Logic (Kategori 6)
+* **Perubahan**: Ditambahkan sheet baru yaitu `Ringkasan Eksekusi` pada pengujian Auto Tap-Out & Cleanup untuk mencatat:
+  * **Jumlah Sesi Diproses**: Berapa banyak sesi asisten yang diperiksa.
+  * **Waktu Proses Total (ms)**: Total waktu yang dibutuhkan server untuk menjalankan seluruh logika pembersihan/auto-tap-out tersebut.
+
+### 8. Cakupan Lab & Hitungan Manual vs Sistem (Kategori 8 - Integrasi Payroll)
+* **Cakupan**: Pengujian payroll ini **mencakup ketiga lab sekaligus** (`LAB_AP`, `LAB_TEKDIG`, `LAB_MIKRO`).
+* **Maksud Perbandingan Manual vs Otomatis**: 
+  * **Hitungan Manual**: Estimasi waktu yang dibutuhkan oleh **seorang admin/manusia** untuk merekap absensi secara manual (memeriksa jam masuk/keluar satu per satu, mencocokkan jadwal, menghitung upah). Kami akan menggunakan konstanta berbasis observasi riil (misalnya 20 detik per baris log).
+  * **Hitungan Otomatis**: Waktu yang dibutuhkan oleh **sistem/script** untuk menghasilkan rekap payroll secara instan.
+  * **Metrik**: Kita akan mengukur **Faktor Kecepatan (Speedup Factor)**, misalnya: *"Sistem memproses 100x lebih cepat daripada rekap manual manusia"*, serta mencocokkan akurasi nominal rupiahnya.
+* **Permintaan Kode Referensi**: **Ya, saya sangat membutuhkan referensi Google Apps Script yang Anda miliki!** Silakan bagikan kode Apps Script tersebut agar logika perhitungan payroll otomatis yang saya buat di pengujian ini 100% selaras dengan cara kerja sistem rekap yang sudah Anda gunakan saat ini.
+
+---
+
+## 🛡️ Kebijakan Isolasi Database & Keamanan
+
+Untuk menjamin pengujian **tidak merusak atau menambah data palsu** pada sistem yang sedang berjalan:
+1. **SQLite**: Pengujian menggunakan file duplikat bernama `test_database_lab.sqlite`. Script pengujian akan otomatis menyalin skema dari `database_lab.sqlite` asli di awal pengujian, lalu menghapusnya setelah pengujian selesai.
+2. **Firebase**: Seluruh penulisan data uji diarahkan ke node khusus `/test_sandbox/...` (misal: `/test_sandbox/absensi_log`). Node produksi seperti `/absensi_log` **tidak akan pernah disentuh oleh operasi WRITE**.
+
+---
+
+## 📂 Struktur Direktori Testing
+
+Pengujian dirancang secara **modular** agar Anda dapat menjalankan setiap kategori secara mandiri tanpa harus menjalankan semuanya sekaligus.
+
+```
+SmartLab_Server/
+└── testing/                          # [NEW] Folder utama testing
+    ├── __init__.py
+    ├── config.py                     # Konfigurasi IP Static ESP32, Firebase sandbox, dll.
+    ├── test_helpers.py               # Utility: isolated DB, Firebase sandbox, ping, HTTP simulator
+    ├── excel_reporter.py             # Engine pembuat Excel report dengan styling Merah Maroon (#800000 / #CC0000)
+    │
+    ├── test_01_fingerprint.py        # Uji Fungsional: Akurasi & Posisi Enroll Jari
+    ├── test_02_transmisi_data.py     # Uji Fungsional: Konektivitas IP & Respon End-to-End (E2E)
+    ├── test_03_latensi_sistem.py     # Uji Fungsional: Respons Server (Single vs Simultan 3 Lab)
+    ├── test_04_cloud_sync_qos.py     # Uji Jaringan: Sinkronisasi SQLite -> Firebase Sandbox
+    ├── test_05_failover.py           # Uji Failover: Multiuser Zero Data Loss (3 Lab)
+    ├── test_06_server_logic.py       # Uji Logic Server: Durasi Proses Auto Tap-Out & Cleanup Sesi
+    ├── test_07_multiuser.py          # Uji Multiuser: Antrian, Validasi Akses Ganda di Lab Berbeda
+    ├── test_08_integrasi.py          # Uji Integrasi: Performa Rekap Payroll (3 Lab vs Estimasi Manual)
+    │
+    └── results/                      # [NEW] Tempat penyimpanan output file Excel (.xlsx)
+```
+
+---
+
+## 🛠️ Konfigurasi & Rincian Tiap Kategori Pengujian
+
+### Komponen 1: Konfigurasi (`config.py`)
+```python
+# --- Database Isolation ---
+TEST_DB_NAME = "test_database_lab.sqlite"
+PROD_DB_NAME = "database_lab.sqlite"
+
+# --- Firebase Isolation ---
+FIREBASE_SANDBOX_PREFIX = "test_sandbox"
+
+# --- Network Static IPs ---
+SERVER_IP = "192.168.137.1"
+SERVER_PORT = 5001  # Port server khusus testing agar tidak bentrok dengan server utama (5000)
+
+ESP32_DEVICES = {
+    "LAB_AP":     {"ip": "192.168.137.101", "mac": "DE:AD:BE:EF:FE:01"},
+    "LAB_TEKDIG": {"ip": "192.168.137.102", "mac": "DE:AD:BE:EF:FE:02"},
+    "LAB_MIKRO":  {"ip": "192.168.137.103", "mac": "DE:AD:BE:EF:FE:03"},
+}
+
+# --- Estimasi Waktu Proses Manual Manusia (untuk Uji Kategori 8) ---
+ESTIMASI_MANUAL_PER_BARIS_DETIK = 20.0  # Waktu bagi admin untuk mengecek 1 log absensi secara manual
+```
+
+---
+
+### Kategori 1: Uji Akurasi & Posisi Enroll Jari (`test_01_fingerprint.py`)
+Menguji pengaruh posisi jari (lurus penuh, miring, sebagian) saat pendaftaran dan pembacaan terhadap akurasi absensi.
+
+* **Excel Output Sheet 1: `Akurasi Fingerprint`**
+  | No | Skenario Jari | Posisi Jari saat Tap | Jumlah Percobaan | Berhasil | Ditolak | Akurasi (%) | Status |
+  |----|---------------|----------------------|------------------|----------|---------|-------------|--------|
+  | 1  | Terdaftar     | Lurus Penuh          | 20               | 20       | 0       | 100.0%      | PASS   |
+  | 2  | Terdaftar     | Miring               | 20               | 17       | 3       | 85.0%       | PASS   |
+  | 3  | Terdaftar     | Sebagian (Tip)       | 20               | 12       | 8       | 60.0%       | WARNING|
+  | 4  | Tidak Terdaftar| Lurus Penuh         | 10               | 0        | 10      | 100.0%      | PASS   |
+
+* **Excel Output Sheet 2: `Detail Percobaan`**
+  | No | Timestamp | Fingerprint ID | Skenario Jari | Posisi Jari | Actual Status | Expected | Match? | Waktu Respon Server (ms) |
+  |----|-----------|----------------|---------------|-------------|---------------|----------|--------|--------------------------|
+  | 1  | 17:01:02  | 901            | Terdaftar     | Lurus       | Accepted      | Accept   | Yes    | 45                       |
+  | 2  | 17:01:15  | 999            | Jari Asing    | Lurus       | Rejected      | Reject   | Yes    | 12                       |
+
+---
+
+### Kategori 2: Uji Konektivitas IP & Transmisi Data (`test_02_transmisi_data.py`)
+Memastikan ketiga ESP32 terhubung dengan benar ke jaringan LAN serta mengukur waktu respon end-to-end (E2E) pengiriman data.
+
+* **Excel Output Sheet 1: `Konektivitas IP`**
+  *(Kolom Avg, Min, Max digunakan untuk mengevaluasi stabilitas jaringan LAN)*
+  | Device | IP Address | MAC Address | Ping Avg (ms) | Ping Min (ms) | Ping Max (ms) | Packet Loss (%) | Status |
+  |--------|------------|-------------|---------------|---------------|---------------|-----------------|--------|
+  | ESP32 LAB_AP | 192.168.137.101 | DE:AD:BE:EF:FE:01 | 4.2 | 1.8 | 12.5 | 0.0% | ONLINE |
+
+* **Excel Output Sheet 2: `Transmisi End-to-End`**
+  | No | Test Case | FP ID | Lab | SQLite Insert? | Firebase Sync? | Field Match (%) | Waktu Respon E2E (ms) | Status |
+  |----|-----------|-------|-----|----------------|----------------|-----------------|------------------------|--------|
+  | 1  | Tap Absen | 901   | LAB_AP | Yes | Yes | 100% | 125 | SUCCESS |
+
+---
+
+### Kategori 3: Uji Latensi Sistem (`test_03_latensi_sistem.py`)
+Mengukur performa kecepatan respon server Flask saat menerima tap dari satu lab vs tap bersamaan (simultan) di ketiga lab.
+
+* **Excel Output Sheet 1: `Latensi Single`**
+  *(Waktu Request & Response menggunakan Timestamp ISO dengan milidetik)*
+  | No | Lab | FP ID | Waktu Request | Waktu Response | Latency (ms) | HTTP Status | Response Body |
+  |----|-----|-------|---------------|----------------|--------------|-------------|---------------|
+  | 1  | LAB_AP | 901 | 17:10:05.123000 | 17:10:05.168000 | 45 | 200 | {"status": "success"} |
+
+* **Excel Output Sheet 2: `Latensi Simultan`**
+  *(Menilai performa beban konkuren di ketiga lab)*
+  | No | Skenario | Lab Terlibat | Latency LAB_AP (ms) | Latency LAB_TEKDIG (ms) | Latency LAB_MIKRO (ms) | Avg (ms) | Max (ms) | Std Dev (ms) |
+  |----|----------|--------------|----------------------|-------------------------|------------------------|----------|----------|--------------|
+  | 1  | Simultan 3 Lab | LAB_AP, TEKDIG, MIKRO | 85 | 92 | 78 | 85.0 | 92 | 7.0 |
+
+---
+
+### Kategori 4: Uji Cloud Sync & Jaringan QoS (`test_04_cloud_sync_qos.py`)
+Mengukur kecepatan replikasi data dari database lokal SQLite ke Firebase Realtime Database.
+
+* **Excel Output Sheet 1: `Sync Latency & QoS`**
+  | No | Data Size (bytes) | Write to SQLite (ms) | Sync to Firebase (ms) | Total E2E Latency (ms) | Jitter Jaringan (ms) | Packet Loss (%) | Status |
+  |----|-------------------|----------------------|-----------------------|------------------------|----------------------|-----------------|--------|
+  | 1  | 156               | 4                    | 85                    | 89                     | 2.1                  | 0.0%            | EXCELLENT |
+
+---
+
+### Kategori 5: Uji Failover & Reliability Multiuser (`test_05_failover.py`)
+Menguji kemampuan sistem melakukan self-healing saat jaringan putus dan menjamin tidak ada data yang hilang (*Zero Data Loss*) saat 3 lab melakukan absensi secara simultan dalam kondisi offline.
+
+* **Excel Output Sheet 1: `Self-Healing`**
+  | No | Skenario Multiuser | Waktu Disconnect | Waktu Reconnect | Recovery Time (s) | Status Server Uji | OLED Indikator ESP32 | Status |
+  |----|--------------------|------------------|-----------------|-------------------|-------------------|----------------------|--------|
+  | 1  | Simulasi 3 Lab Offline | 17:20:00 | 17:21:15 | 75 | ACTIVE (Offline Mode) | "Offline - Saved" | SUCCESS |
+
+* **Excel Output Sheet 2: `Zero Data Loss`**
+  | No | Log ID | Lab Terlibat | Data SQLite (JSON) | Data Firebase (JSON) | Size SQLite (bytes) | Size Firebase (bytes) | Fields Match (%) | Status |
+  |----|--------|--------------|--------------------|----------------------|---------------------|-----------------------|------------------|--------|
+  | 1  | 9015   | LAB_AP       | {"id": 901, ...}   | {"id": 901, ...}     | 182                 | 182                   | 100%             | SUCCESS|
+  | 2  | 9016   | LAB_TEKDIG   | {"id": 902, ...}   | {"id": 902, ...}     | 185                 | 185                   | 100%             | SUCCESS|
+  | 3  | 9017   | LAB_MIKRO    | {"id": 903, ...}   | {"id": 903, ...}     | 178                 | 178                   | 100%             | SUCCESS|
+
+---
+
+### Kategori 6: Uji Server Logic & Cleanup (`test_06_server_logic.py`)
+Menguji efektivitas dan kecepatan waktu pemrosesan logika server untuk fitur *Auto Tap-Out* dan *Auto Cleanup* (penghapusan sesi kemarin).
+
+* **Excel Output Sheet 1: `Detail Pemrosesan Sesi`**
+  | No | Test Case Skenario | FP ID | Waktu Masuk | Jam Selesai Kelas | Expected Status | Actual Status | Waktu Keluar | Match? |
+  |----|--------------------|-------|-------------|-------------------|-----------------|---------------|--------------|--------|
+  | 1  | Auto Tap-Out       | 901   | 08:00:00    | 10:00:00          | Keluar (Auto)   | Keluar (Auto) | 10:00:00     | Yes    |
+
+* **Excel Output Sheet 2: `Ringkasan Eksekusi`**
+  *(Menjawab kebutuhan untuk mengukur performa total pemrosesan sesi)*
+  | Nama Proses | Jumlah Sesi Diproses | Waktu Mulai | Waktu Selesai | Waktu Proses Total (ms) | Status Akhir |
+  |-------------|----------------------|-------------|---------------|-------------------------|--------------|
+  | Auto Tap-Out Logika | 45 Sesi | 17:30:00.100 | 17:30:00.125 | 25 ms | SUCCESS |
+  | Auto Cleanup Sesi Kemarin | 12 Sesi | 17:30:05.200 | 17:30:05.208 | 8 ms | SUCCESS |
+
+---
+
+### Kategori 7: Uji Multiuser & Antrian Akses (`test_07_multiuser.py`)
+Menguji antrian konkuren jika banyak asisten melakukan tap bersamaan, serta menguji validasi pencegahan akses ganda (double-login) di lab berbeda.
+
+* **Excel Output Sheet 1: `Antrian Data`**
+  | No | Thread ID | Fingerprint ID | Lab Terkait | Timestamp Kirim | Timestamp Diterima Server | Urutan Masuk DB | Selisih (ms) | Status |
+  |----|-----------|----------------|-------------|-----------------|---------------------------|-----------------|--------------|--------|
+  | 1  | Thread-1  | 901            | LAB_AP      | 17:40:00.001    | 17:40:00.015              | 1               | 14           | PASS   |
+  | 2  | Thread-2  | 902            | LAB_TEKDIG  | 17:40:00.002    | 17:40:00.022              | 2               | 20           | PASS   |
+
+* **Excel Output Sheet 2: `Validasi Akses Multi-Lab`**
+  *(Mencegah asisten login di dua lab secara bersamaan)*
+  | No | Asisten ID | Tap 1 (Lab) | Hasil Tap 1 | Tap 2 (Lab Lain) | Hasil Tap 2 (Expected: DITOLAK) | Match? | Response Server |
+  |----|------------|-------------|-------------|------------------|---------------------------------|--------|-----------------|
+  | 1  | 901        | LAB_AP      | MASUK (OK)  | LAB_TEKDIG       | GAGAL (Sudah Login di LAB_AP)  | Yes    | "User already active in LAB_AP" |
+
+---
+
+### Kategori 8: Uji Integrasi & Efisiensi Payroll (`test_08_integrasi.py`)
+Mengukur performa dan akurasi integrasi Google Sheets Payroll di **ketiga lab** (`LAB_AP`, `LAB_TEKDIG`, `LAB_MIKRO`) serta membandingkan kecepatan pemrosesan otomatis vs manual manusia.
+
+* **Excel Output Sheet 1: `Efisiensi Payroll`**
+  *(Membandingkan estimasi waktu pengerjaan admin manusia vs pemrosesan program otomatis)*
+  | No | Lab Terkait | Jumlah Record | Waktu Fetch API (ms) | Waktu Proses Sistem (ms) | Estimasi Waktu Manual (detik)* | Faktor Kecepatan (Speedup) | Akurasi Nilai (%) | Status |
+  |----|-------------|---------------|----------------------|---------------------------|--------------------------------|----------------------------|--------------------|--------|
+  | 1  | LAB_AP      | 20            | 120 ms               | 15 ms                     | 400 detik                      | 26.666x Lebih Cepat        | 100.0%             | SUCCESS|
+  | 2  | LAB_TEKDIG  | 14            | 95 ms                | 12 ms                     | 280 detik                      | 23.333x Lebih Cepat        | 100.0%             | SUCCESS|
+  | 3  | LAB_MIKRO   | 14            | 98 ms                | 11 ms                     | 280 detik                      | 25.454x Lebih Cepat        | 100.0%             | SUCCESS|
+
+> *Catatan: Estimasi waktu manual dihitung berdasarkan `Jumlah Record * ESTIMASI_MANUAL_PER_BARIS_DETIK` (20 detik per baris).*
+
+---
+
+## 🔄 Alur Kerja & Prosedur Pengujian (Workflow)
+
+Berikut adalah petunjuk langkah demi langkah (*step-by-step*) cara Anda melakukan pengujian dari awal hingga mendapatkan file Excel laporan:
+
+```mermaid
+graph TD
+    A[1. Persiapan Lingkungan] --> B[2. Menjalankan Server Uji Port 5001]
+    B --> C{3. Pilih Metode Uji}
+    C -->|Simulasi Murni| D[Jalankan Script via Terminal]
+    C -->|Pengujian Fisik| E[Hubungkan ESP32 + Tap Jari]
+    D --> F[Script Menguji & Memproses Data]
+    E --> F
+    F --> G[Pembuatan File Excel Otomatis]
+    G --> H[Verifikasi Hasil & Cleanup Database Sandbox]
+```
+
+### Langkah 1: Persiapan Lingkungan (Prerequisites)
+1. Buka terminal di direktori proyek: `c:\Users\Lenovo\Documents\Arduino\project_absensi_aslab\LAN\SmartLab_Server\`
+2. Pastikan file `firebase_credentials.json` berada di root folder untuk akses Firebase Sandbox.
+3. Hubungkan komputer/server Anda ke router lokal (`192.168.137.x`) menggunakan Wi-Fi atau kabel LAN.
+
+### Langkah 2: Jalankan Server Khusus Pengujian
+Sebelum memulai script pengujian, jalankan server pengujian terisolasi yang menggunakan port `5001` agar tidak bentrok dengan server utama Anda:
+```powershell
+# Di terminal PowerShell Anda:
+$env:FLASK_ENV="testing"
+python server_main.py --port 5001
+```
+*(Server pengujian ini akan membaca konfigurasi sandbox sehingga database SQLite yang dipakai adalah `test_database_lab.sqlite` dan Firebase node adalah `/test_sandbox/`)*
+
+### Langkah 3: Eksekusi Pengujian (Modular per Kategori)
+Anda dapat menjalankan file pengujian satu per satu secara mandiri langsung dari terminal.
+
+#### A. Kategori Pengujian Fisik (Membutuhkan Interaksi Alat)
+* **Kategori 1 (Uji Fingerprint)**:
+  1. Jalankan script: `python -m testing.test_01_fingerprint`
+  2. Ikuti instruksi di layar untuk melakukan tap jari pada ESP32 (lurus, miring, sebagian, dan jari asing).
+  3. Tekan `Ctrl+C` atau selesai sesuai menu untuk langsung menyimpan hasil ke `01_Fingerprint_Accuracy_{date}.xlsx`.
+* **Kategori 2 (Uji Transmisi E2E)**:
+  1. Pastikan ketiga ESP32 menyala.
+  2. Jalankan: `python -m testing.test_02_transmisi_data`
+  3. Script akan otomatis melakukan ping dan memvalidasi transmisi data E2E ke Excel `02_Data_Transmission_{date}.xlsx`.
+
+#### B. Kategori Pengujian Otomatis/Simulasi (Bisa Berjalan Tanpa Alat Fisik)
+* **Kategori 3 (Uji Latensi)**: `python -m testing.test_03_latensi_sistem` ➔ Output: `03_System_Latency_{date}.xlsx`
+* **Kategori 4 (Uji Cloud Sync)**: `python -m testing.test_04_cloud_sync_qos` ➔ Output: `04_Cloud_Sync_QoS_{date}.xlsx`
+* **Kategori 5 (Uji Failover)**: `python -m testing.test_05_failover` ➔ Output: `05_Failover_Reliability_{date}.xlsx`
+* **Kategori 6 (Uji Server Logic)**: `python -m testing.test_06_server_logic` ➔ Output: `06_Server_Logic_{date}.xlsx`
+* **Kategori 7 (Uji Multiuser)**: `python -m testing.test_07_multiuser` ➔ Output: `07_Multiuser_{date}.xlsx`
+* **Kategori 8 (Uji Integrasi Payroll)**: `python -m testing.test_08_integrasi` ➔ Output: `08_Integration_{date}.xlsx`
+
+### Langkah 4: Ambil Laporan Excel & Pembersihan (Cleanup)
+1. Seluruh hasil Excel terformat cantik (ber-tema warna maroon/merah) akan disimpan di folder `testing/results/`.
+2. Setiap kali pengujian selesai dijalankan, script secara otomatis membersihkan file `test_database_lab.sqlite` dan menghapus node `/test_sandbox/` di Firebase agar lingkungan tetap bersih.
+
+---
+
+## 📈 Rencana Verifikasi Keberhasilan Pengujian
+1. **Verifikasi Isolasi**: Memastikan file `database_lab.sqlite` produksi tidak memiliki penambahan baris data baru dan checksum SHA-256 berkas tetap identik sebelum dan sesudah test dijalankan.
+2. **Verifikasi Format Laporan**: Membuka berkas hasil Excel di Microsoft Excel / Google Sheets untuk menjamin pewarnaan bersyarat (*Conditional Formatting*) bekerja (Hijau untuk PASS, Merah untuk FAIL).
